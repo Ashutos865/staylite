@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { 
-  TrendingUp, Users, LogOut, IndianRupee, Sun, Moon, 
-  DoorOpen, DoorClosed, Calendar, Building2, Banknote, CreditCard, Smartphone, Loader2, List, CheckCircle, Download, FileSpreadsheet, FileText
+import {
+  TrendingUp, Users, LogOut, IndianRupee, Sun, Moon,
+  DoorOpen, DoorClosed, Calendar, Building2, Banknote, CreditCard, Smartphone, Loader2, List, CheckCircle, Download, FileSpreadsheet, FileText, Globe, Wifi
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -95,7 +95,9 @@ export default function Summary({ user }) {
       revenueTotal: 0,
       revenueUPI: 0,
       revenueCash: 0,
-      revenueCard: 0
+      revenueCard: 0,
+      revenueOnline: 0,
+      onlineBookings: 0,
     };
 
     bookings.forEach(bkg => {
@@ -121,12 +123,15 @@ export default function Summary({ user }) {
         metrics.checkOuts++;
       }
 
+      if (bkg.source === 'ONLINE') metrics.onlineBookings++;
+
       if (checkIn >= targetDate && checkIn < nextDate) {
         const amount = bkg.totalAmount || 0;
         metrics.revenueTotal += amount;
-        if (bkg.paymentMethod === 'UPI') metrics.revenueUPI += amount;
-        if (bkg.paymentMethod === 'CASH') metrics.revenueCash += amount;
-        if (bkg.paymentMethod === 'CARD') metrics.revenueCard += amount;
+        if (bkg.paymentMethod === 'UPI')      metrics.revenueUPI    += amount;
+        if (bkg.paymentMethod === 'CASH')     metrics.revenueCash   += amount;
+        if (bkg.paymentMethod === 'CARD')     metrics.revenueCard   += amount;
+        if (bkg.paymentMethod === 'CASHFREE') metrics.revenueOnline += amount;
       }
     });
 
@@ -282,7 +287,7 @@ export default function Summary({ user }) {
         <>
           {/* --- SECTION 1: OCCUPANCY METRICS --- */}
           <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Occupancy Stats ({new Date(selectedDate).toLocaleDateString()})</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-8">
             {/* Full Day */}
             <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
               <div>
@@ -320,11 +325,21 @@ export default function Summary({ user }) {
               </div>
               <div className="p-3 sm:p-4 rounded-full bg-red-50 text-red-600"><LogOut className="w-5 h-5 sm:w-6 sm:h-6" /></div>
             </div>
+
+            {/* Online Bookings */}
+            <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+              <div>
+                <h3 className="text-gray-500 text-xs sm:text-sm font-bold mb-1">Online Bookings</h3>
+                <p className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.onlineBookings}</p>
+                <p className="text-[10px] text-emerald-600 font-semibold mt-1">via website</p>
+              </div>
+              <div className="p-3 sm:p-4 rounded-full bg-emerald-50 text-emerald-600"><Globe className="w-5 h-5 sm:w-6 sm:h-6" /></div>
+            </div>
           </div>
 
           {/* --- SECTION 2: FINANCIAL METRICS --- */}
           <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Revenue Generation ({new Date(selectedDate).toLocaleDateString()})</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-10">
             
             {/* Total Revenue */}
             <div className="bg-indigo-600 p-5 sm:p-6 rounded-2xl shadow-md text-white flex flex-col justify-between">
@@ -361,6 +376,15 @@ export default function Summary({ user }) {
               </div>
               <div className="p-3 rounded-xl bg-blue-50 text-blue-600"><CreditCard className="w-4 h-4 sm:w-5 sm:h-5" /></div>
             </div>
+
+            {/* Cashfree / Online */}
+            <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+              <div>
+                <h3 className="text-gray-500 text-[10px] sm:text-xs font-bold uppercase tracking-wider mb-1">Online (Cashfree)</h3>
+                <p className="text-xl sm:text-2xl font-black text-gray-900 flex items-center"><IndianRupee className="w-4 h-4 sm:w-5 sm:h-5 mr-1"/> {metrics.revenueOnline.toLocaleString()}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600"><Wifi className="w-4 h-4 sm:w-5 sm:h-5" /></div>
+            </div>
           </div>
 
           {/* --- SECTION 3: FINANCIAL LEDGER & PAYMENT AUDIT --- */}
@@ -368,7 +392,7 @@ export default function Summary({ user }) {
             <List className="w-4 h-4 mr-2" /> Financial Ledger & Balances
           </h2>
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+            <table className="w-full text-left border-collapse min-w-200">
               <thead>
                 <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
                   <th className="px-4 sm:px-6 py-4 whitespace-nowrap">Guest & ID</th>
@@ -391,8 +415,16 @@ export default function Summary({ user }) {
                       <tr key={bkg._id} className="hover:bg-gray-50 transition-colors">
                         {/* Guest Info */}
                         <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                          <div className="font-bold text-gray-900">{bkg.guestName}</div>
+                          <div className="font-bold text-gray-900 flex items-center gap-1.5">
+                            {bkg.guestName}
+                            {bkg.source === 'ONLINE' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 uppercase">
+                                <Globe className="w-2.5 h-2.5 mr-0.5" /> Online
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-gray-400 font-mono mt-0.5">ID: {(bkg._id || bkg.id).toString().slice(-6).toUpperCase()}</div>
+                          {bkg.guestEmail && <div className="text-[10px] text-gray-400 mt-0.5">{bkg.guestEmail}</div>}
                         </td>
                         
                         {/* Dates */}

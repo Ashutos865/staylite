@@ -20,21 +20,33 @@ const verifyToken = (req, res, next) => {
     req.user = verified; 
     next(); // Pass control to the next function
   } catch (error) {
-    res.status(400).json({ message: 'Invalid Token.' });
+    const isExpired = error.name === 'TokenExpiredError';
+    res.status(401).json({ message: isExpired ? 'Token expired.' : 'Invalid Token.' });
   }
 };
 
-// 2. Check if the user has the correct Role (Are they an Admin?)
+// 2. Require an exact role
 const requireRole = (requiredRole) => {
   return (req, res, next) => {
-    // req.user was set by verifyToken right above this!
     if (!req.user || req.user.role !== requiredRole) {
-      return res.status(403).json({ 
-        message: `Forbidden. This action requires ${requiredRole} privileges.` 
+      return res.status(403).json({
+        message: `Forbidden. This action requires ${requiredRole} privileges.`
       });
     }
     next();
   };
 };
 
-module.exports = { verifyToken, requireRole };
+// 3. Require one of several allowed roles
+const requireAnyRole = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: `Forbidden. Allowed roles: ${roles.join(', ')}.`
+      });
+    }
+    next();
+  };
+};
+
+module.exports = { verifyToken, requireRole, requireAnyRole };

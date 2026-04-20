@@ -1,28 +1,46 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs'); 
+const bcrypt = require('bcryptjs');
+const path = require('path');
+const multer = require('multer');
+const { body, validationResult } = require('express-validator');
 const Property = require('../models/Property');
 const Room = require('../models/Room');
-const User = require('../models/User'); 
+const User = require('../models/User');
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
+const { uploadToR2, deleteFromR2 } = require('../utils/r2');
+
+// ---- MULTER: memory storage — files go to Cloudflare R2, not local disk ----
+const uploadPhotos = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB per file
+  fileFilter: (req, file, cb) => {
+    const ok = /jpeg|jpg|png|webp/.test(path.extname(file.originalname).toLowerCase()) &&
+               /image\//.test(file.mimetype);
+    cb(ok ? null : new Error('Only JPEG, PNG, or WebP images are allowed.'), ok);
+  }
+});
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  next();
+};
 
 // ==========================================
 // 1. CREATE A NEW HOTEL & ITS MANAGER
 // ==========================================
-// POST /api/properties/create
-router.post('/create', verifyToken, requireRole('PROPERTY_OWNER'), async (req, res) => {
+router.post('/create', verifyToken, requireRole('PROPERTY_OWNER'), [
+  body('name').trim().notEmpty().withMessage('Hotel name is required.'),
+  body('address').trim().notEmpty().withMessage('Hotel address is required.'),
+  body('contactNumber').optional().isMobilePhone().withMessage('Invalid contact number.'),
+  body('managerName').trim().notEmpty().withMessage('Manager name is required.'),
+  body('managerEmail').isEmail().normalizeEmail().withMessage('A valid manager email is required.'),
+  body('managerPassword').isLength({ min: 6 }).withMessage('Manager password must be at least 6 characters.')
+], validate, async (req, res) => {
   try {
-    const ownerId = req.user.userId; 
-    
-    const { 
-      name, address, contactNumber,
-      managerName, managerEmail, managerPassword 
-    } = req.body;
-
-    // --- VALIDATION CHECKS ---
-    if (!name || !address) return res.status(400).json({ message: 'Hotel name and address are required.' });
-    if (!managerName || !managerEmail || !managerPassword) return res.status(400).json({ message: 'Manager name, email, and password are required.' });
-    if (managerPassword.length < 6) return res.status(400).json({ message: 'Manager password must be at least 6 characters long.' });
+    const ownerId = req.user.userId;
+    const { name, address, contactNumber, managerName, managerEmail, managerPassword } = req.body;
 
     const existingUser = await User.findOne({ email: managerEmail });
     if (existingUser) return res.status(400).json({ message: 'An account with this manager email already exists.' });
@@ -143,8 +161,12 @@ router.get('/my-hotels', verifyToken, requireRole('PROPERTY_OWNER'), async (req,
 // ==========================================
 // 4. ADD A ROOM TO A HOTEL
 // ==========================================
-// POST /api/properties/:propertyId/rooms
-router.post('/:propertyId/rooms', verifyToken, requireRole('PROPERTY_OWNER'), async (req, res) => {
+router.post('/:propertyId/rooms', verifyToken, requireRole('PROPERTY_OWNER'), [
+  body('roomNumber').trim().notEmpty().withMessage('Room number is required.'),
+  body('category').isIn(['STANDARD_NON_AC', 'DELUXE_AC', 'PREMIUM_SUITE']).withMessage('Invalid room category.'),
+  body('capacity').optional().isInt({ min: 1, max: 20 }).withMessage('Capacity must be between 1 and 20.'),
+  body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a positive number.')
+], validate, async (req, res) => {
   try {
     const { propertyId } = req.params;
     const { roomNumber, category, capacity, basePrice } = req.body;
@@ -182,6 +204,17 @@ router.post('/:propertyId/rooms', verifyToken, requireRole('PROPERTY_OWNER'), as
 // GET /api/properties/:propertyId/rooms
 router.get('/:propertyId/rooms', verifyToken, async (req, res) => {
   try {
+    // RBAC: managers can only access rooms for their own assigned property
+    if (req.user.role === 'HOTEL_MANAGER') {
+      const manager = await User.findById(req.user.userId);
+      if (manager.assignedProperty?.toString() !== req.params.propertyId) {
+        return res.status(403).json({ message: 'Access denied.' });
+      }
+    } else if (req.user.role === 'PROPERTY_OWNER') {
+      const prop = await Property.findOne({ _id: req.params.propertyId, owner: req.user.userId });
+      if (!prop) return res.status(403).json({ message: 'Access denied.' });
+    }
+
     const rooms = await Room.find({ property: req.params.propertyId }).sort({ roomNumber: 1 });
     res.status(200).json(rooms);
   } catch (error) {
@@ -200,6 +233,62 @@ router.get('/', verifyToken, requireRole('SUPER_ADMIN'), async (req, res) => {
     res.status(200).json(allProps);
   } catch (error) {
     console.error('Error fetching all properties globally:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// 7. UPLOAD PHOTOS FOR A HOTEL  →  Cloudflare R2
+// ==========================================
+// POST /api/properties/:propertyId/photos  (multipart, field: "photos", max 5)
+router.post('/:propertyId/photos', verifyToken, requireRole('PROPERTY_OWNER'),
+  uploadPhotos.array('photos', 5),
+  async (req, res) => {
+    try {
+      const property = await Property.findOne({ _id: req.params.propertyId, owner: req.user.userId });
+      if (!property) return res.status(403).json({ message: 'Property not found or unauthorized.' });
+
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: 'No image files were provided.' });
+      }
+
+      const remaining = 5 - (property.photos || []).length;
+      const filesToUpload = req.files.slice(0, remaining);
+
+      // Upload each file buffer to Cloudflare R2
+      const urls = await Promise.all(
+        filesToUpload.map(f => uploadToR2(f.buffer, f.originalname, f.mimetype))
+      );
+
+      property.photos = [...(property.photos || []), ...urls];
+      await property.save();
+
+      res.json({ message: `${urls.length} photo(s) uploaded to Cloudflare R2!`, photos: property.photos });
+    } catch (error) {
+      console.error('Photo upload error:', error);
+      res.status(500).json({ message: error.message || 'Internal Server Error' });
+    }
+  }
+);
+
+// ==========================================
+// 8. DELETE A SPECIFIC PHOTO  →  Cloudflare R2
+// ==========================================
+// DELETE /api/properties/:propertyId/photos
+router.delete('/:propertyId/photos', verifyToken, requireRole('PROPERTY_OWNER'), async (req, res) => {
+  try {
+    const { photoUrl } = req.body;
+    const property = await Property.findOne({ _id: req.params.propertyId, owner: req.user.userId });
+    if (!property) return res.status(403).json({ message: 'Property not found or unauthorized.' });
+
+    property.photos = property.photos.filter(p => p !== photoUrl);
+    await property.save();
+
+    // Delete from R2 (silent if not configured)
+    try { await deleteFromR2(photoUrl); } catch { /* ignore */ }
+
+    res.json({ message: 'Photo removed.', photos: property.photos });
+  } catch (error) {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });

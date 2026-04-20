@@ -1,5 +1,25 @@
-import { useState, useEffect } from 'react';
-import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck } from 'lucide-react';
+
+// Reusable confirmation dialog
+function ConfirmModal({ title, message, confirmLabel = 'Confirm', confirmClass = 'bg-red-600 hover:bg-red-700', onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 mb-6">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${confirmClass}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Inventory({ user }) {
   // --- CORE STATE ---
@@ -27,9 +47,15 @@ export default function Inventory({ user }) {
   
   const [checkinBooking, setCheckinBooking] = useState(null);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
-  
+  const [confirmAction, setConfirmAction] = useState(null); // { type, booking }
+
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('UPI');
+
+  // --- ID PROOF QR STATE (for online booking check-in) ---
+  const [idQr, setIdQr] = useState({ status: 'idle', token: '', qrImg: '', fileUrl: '' });
+  // idle | generating | ready | done | error | expired
+  const idQrPollRef = useRef(null);
 
   const [roomForm, setRoomForm] = useState({
     roomNumber: '',
@@ -168,6 +194,47 @@ export default function Inventory({ user }) {
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
+  // --- QR ID PROOF HELPERS ---
+  useEffect(() => () => { if (idQrPollRef.current) clearInterval(idQrPollRef.current); }, []);
+
+  const startIdQrPoll = (token) => {
+    if (idQrPollRef.current) clearInterval(idQrPollRef.current);
+    idQrPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`http://localhost:5000/api/public/upload-status/${token}`);
+        const data = await res.json();
+        if (data.status === 'UPLOADED') {
+          clearInterval(idQrPollRef.current);
+          setIdQr(prev => ({ ...prev, status: 'done', fileUrl: data.fileUrl }));
+        } else if (data.status === 'EXPIRED') {
+          clearInterval(idQrPollRef.current);
+          setIdQr(prev => ({ ...prev, status: 'expired' }));
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  };
+
+  const generateIdQr = async () => {
+    setIdQr({ status: 'generating', token: '', qrImg: '', fileUrl: '' });
+    try {
+      const res = await fetch('http://localhost:5000/api/public/upload-token', { method: 'POST' });
+      const data = await res.json();
+      const uploadUrl = `${window.location.origin}/upload-id/${data.token}`;
+      const QRCode = await import('qrcode');
+      const img = await QRCode.toDataURL(uploadUrl, { width: 200, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } });
+      setIdQr({ status: 'ready', token: data.token, qrImg: img, fileUrl: '' });
+      startIdQrPoll(data.token);
+    } catch {
+      setIdQr({ status: 'error', token: '', qrImg: '', fileUrl: '' });
+    }
+  };
+
+  const resetIdQr = (booking) => {
+    if (idQrPollRef.current) clearInterval(idQrPollRef.current);
+    const hasId = booking?.documentUrl && booking.documentUrl !== 'pending_upload';
+    setIdQr({ status: hasId ? 'done' : 'idle', token: '', qrImg: '', fileUrl: hasId ? booking.documentUrl : '' });
+  };
+
   // --- 4. API ACTIONS ---
   const handleAddRoom = async (e) => {
     e.preventDefault();
@@ -255,10 +322,11 @@ export default function Inventory({ user }) {
   const handleStatusUpdate = async (bookingId, newStatus) => {
     try {
       const token = localStorage.getItem('hotel_auth_token');
-      const payload = { 
+      const payload = {
         status: newStatus,
         additionalPayment: Number(paymentAmount) || 0,
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod,
+        ...(idQr.fileUrl ? { documentUrl: idQr.fileUrl } : {})
       };
 
       const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/status`, {
@@ -268,9 +336,11 @@ export default function Inventory({ user }) {
       });
 
       if (response.ok) {
-        fetchInventoryData(); 
+        fetchInventoryData();
         setCheckinBooking(null);
         setCheckoutBooking(null);
+        if (idQrPollRef.current) clearInterval(idQrPollRef.current);
+        setIdQr({ status: 'idle', token: '', qrImg: '', fileUrl: '' });
       } else {
         const data = await response.json();
         alert(`Error: ${data.message}`);
@@ -282,8 +352,9 @@ export default function Inventory({ user }) {
 
   const initiateCheckIn = (booking) => {
     setCheckinBooking(booking);
-    setPaymentAmount(''); 
+    setPaymentAmount('');
     setPaymentMethod('UPI');
+    resetIdQr(booking);
   };
 
   const initiateCheckout = (booking) => {
@@ -293,6 +364,26 @@ export default function Inventory({ user }) {
     const balance = Math.max(0, total - paid);
     setPaymentAmount(balance > 0 ? balance.toString() : '');
     setPaymentMethod('UPI');
+  };
+
+  const handleCancelBooking = async (bookingId) => {
+    try {
+      const token = localStorage.getItem('hotel_auth_token');
+      const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: 'CANCELLED' })
+      });
+      if (response.ok) {
+        setConfirmAction(null);
+        fetchInventoryData();
+      } else {
+        const data = await response.json();
+        alert(`Error: ${data.message}`);
+      }
+    } catch {
+      alert('Failed to cancel booking.');
+    }
   };
 
   return (
@@ -348,7 +439,7 @@ export default function Inventory({ user }) {
 
         {/* Room Grid */}
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[500px]">
+          <table className="w-full text-left border-collapse min-w-125">
             <thead>
               <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
                 <th className="px-4 sm:px-6 py-4 whitespace-nowrap">Room No.</th>
@@ -463,7 +554,17 @@ export default function Inventory({ user }) {
                     
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <span className="font-bold text-sm text-gray-900 block">{bkg.guestName} <span className="text-xs text-gray-400 font-normal ml-1">({bkg.guestCount || 1} Guests)</span></span>
+                        <span className="font-bold text-sm text-gray-900 flex items-center gap-1.5 flex-wrap">
+                        {bkg.guestName}
+                        {bkg.source === 'ONLINE' && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 uppercase">
+                            <Globe className="w-2.5 h-2.5 mr-0.5" /> Online
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-400 font-normal">
+                          ({bkg.guestCount || 1} {bkg.source === 'ONLINE' ? 'room(s)' : 'guests'})
+                        </span>
+                      </span>
                         {activePropertyId === 'ALL' && (
                            <span className="text-[10px] font-bold text-indigo-600 flex items-center mt-1">
                              <Building className="w-3 h-3 mr-1" /> {getPropertyName(bkg.property?._id || bkg.property)}
@@ -503,11 +604,19 @@ export default function Inventory({ user }) {
                     </div>
 
                     {isPending && (
-                      <button 
-                        onClick={() => openAssignModal(bkg)}
-                        className="w-full bg-white border border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center transition-colors">
-                        <MapPin className="w-3.5 h-3.5 mr-1.5" /> Assign Room(s)
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openAssignModal(bkg)}
+                          className="flex-1 bg-white border border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center transition-colors">
+                          <MapPin className="w-3.5 h-3.5 mr-1.5" /> Assign Room(s)
+                        </button>
+                        <button
+                          onClick={() => setConfirmAction({ type: 'cancel', booking: bkg })}
+                          title="Cancel booking"
+                          className="p-2 border border-red-200 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
 
                     {bkg.status === 'CONFIRMED' && (
@@ -515,10 +624,16 @@ export default function Inventory({ user }) {
                         <div className="text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 py-2 px-3 rounded-lg flex-1 text-center truncate">
                           Room(s): {assignedRoomStr}
                         </div>
-                        <button 
+                        <button
                           onClick={() => initiateCheckIn(bkg)}
                           className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center transition-colors">
                           <CheckCircle className="w-3.5 h-3.5 mr-1" /> Check-In
+                        </button>
+                        <button
+                          onClick={() => setConfirmAction({ type: 'cancel', booking: bkg })}
+                          title="Cancel booking"
+                          className="p-2 border border-red-200 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     )}
@@ -725,11 +840,108 @@ export default function Inventory({ user }) {
             </div>
             
             <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
-              <div className="text-center mb-2">
+              <div className="text-center mb-4">
                 <p className="text-sm font-medium text-gray-500 mb-1">Guest Arrival</p>
-                <p className="text-xl font-bold text-gray-900">{checkinBooking.guestName}</p>
+                <div className="flex items-center justify-center gap-2">
+                  <p className="text-xl font-bold text-gray-900">{checkinBooking.guestName}</p>
+                  {checkinBooking.source === 'ONLINE' && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase">
+                      <Globe className="w-3 h-3 mr-0.5" /> Online
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-indigo-600 font-bold mt-1">Room(s) {getAssignedRoomNumbers(checkinBooking)}</p>
+                {checkinBooking.guestEmail && (
+                  <p className="text-xs text-gray-400 mt-0.5">{checkinBooking.guestEmail} · {checkinBooking.guestPhone}</p>
+                )}
               </div>
+
+              {/* ID PROOF SECTION — only for online bookings */}
+              {checkinBooking.source === 'ONLINE' && (
+                <div className="mb-4 border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2.5 flex items-center gap-2 border-b border-gray-100">
+                    <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Guest ID Proof</span>
+                    {idQr.status === 'done' && (
+                      <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Verified</span>
+                    )}
+                    {idQr.status !== 'done' && (
+                      <span className="ml-auto text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">Pending</span>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    {/* Already has ID */}
+                    {idQr.status === 'done' && (
+                      <div className="flex items-center gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700">ID document received</p>
+                          <a href={idQr.fileUrl} target="_blank" rel="noreferrer"
+                            className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-0.5">
+                            <ExternalLink className="w-3 h-3" /> View uploaded document
+                          </a>
+                        </div>
+                        <button onClick={generateIdQr} className="text-[10px] text-gray-400 hover:text-gray-600 underline shrink-0">Replace</button>
+                      </div>
+                    )}
+
+                    {/* Idle — no ID yet */}
+                    {idQr.status === 'idle' && (
+                      <div className="flex flex-col items-center gap-2 py-1 text-center">
+                        <p className="text-xs text-gray-500">No ID uploaded. Generate a QR for the guest to scan.</p>
+                        <button onClick={generateIdQr}
+                          className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
+                          <QrCode className="w-3.5 h-3.5" /> Generate QR Code
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Generating */}
+                    {idQr.status === 'generating' && (
+                      <div className="flex items-center justify-center gap-2 py-2 text-indigo-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-xs">Generating QR code...</span>
+                      </div>
+                    )}
+
+                    {/* Ready — show QR */}
+                    {idQr.status === 'ready' && (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="p-2 border border-indigo-100 rounded-lg bg-white">
+                          <img src={idQr.qrImg} alt="Upload QR" className="w-36 h-36" />
+                        </div>
+                        <p className="text-[10px] text-gray-400 text-center">Guest scans this to upload their ID</p>
+                        <div className="flex items-center gap-1 text-[10px] text-indigo-500 animate-pulse">
+                          <ScanLine className="w-3 h-3" /> Waiting for upload...
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Expired */}
+                    {idQr.status === 'expired' && (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-orange-400 shrink-0" />
+                        <p className="text-xs text-gray-500 flex-1">QR expired.</p>
+                        <button onClick={generateIdQr} className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800">
+                          <RefreshCw className="w-3 h-3" /> New QR
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Error */}
+                    {idQr.status === 'error' && (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        <p className="text-xs text-gray-500 flex-1">Failed to generate QR.</p>
+                        <button onClick={generateIdQr} className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800">
+                          <RefreshCw className="w-3 h-3" /> Retry
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {(() => {
                 const total = checkinBooking.totalAmount || 0;
@@ -796,6 +1008,20 @@ export default function Inventory({ user }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================== */}
+      {/* CONFIRM MODAL: CANCEL BOOKING             */}
+      {/* ========================================== */}
+      {confirmAction?.type === 'cancel' && (
+        <ConfirmModal
+          title="Cancel Booking?"
+          message={`This will permanently cancel the booking for ${confirmAction.booking.guestName}. This action cannot be undone.`}
+          confirmLabel="Yes, Cancel Booking"
+          confirmClass="bg-red-600 hover:bg-red-700"
+          onConfirm={() => handleCancelBooking(confirmAction.booking._id)}
+          onCancel={() => setConfirmAction(null)}
+        />
       )}
 
       {/* ========================================== */}

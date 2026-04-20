@@ -1,25 +1,45 @@
 const express = require('express');
 const router = express.Router();
+const { body, validationResult } = require('express-validator');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
-const Property = require('../models/Property'); 
-const User = require('../models/User'); 
+const Property = require('../models/Property');
+const User = require('../models/User');
 const { verifyToken } = require('../middleware/authMiddleware');
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  next();
+};
 
 // ==========================================
 // 1. CREATE A NEW BOOKING & INITIAL TRANSACTION
 // ==========================================
-// POST /api/bookings/create
-router.post('/create', verifyToken, async (req, res) => {
+router.post('/create', verifyToken, [
+  body('propertyId').notEmpty().withMessage('Property ID is required.'),
+  body('guestName').trim().notEmpty().withMessage('Guest name is required.'),
+  body('guestPhone').trim().isMobilePhone().withMessage('A valid guest phone number is required.'),
+  body('guestCount').isInt({ min: 1 }).withMessage('Guest count must be at least 1.'),
+  body('checkIn').isISO8601().withMessage('A valid check-in date is required.'),
+  body('checkOut').isISO8601().withMessage('A valid check-out date is required.')
+    .custom((checkOut, { req }) => {
+      if (new Date(checkOut) <= new Date(req.body.checkIn)) {
+        throw new Error('Check-out date must be after check-in date.');
+      }
+      return true;
+    }),
+  body('bookingType').isIn(['FULL_DAY', 'HALF_DAY']).withMessage('Booking type must be FULL_DAY or HALF_DAY.'),
+  body('reqType').isIn(['AC', 'NON_AC']).withMessage('Room type must be AC or NON_AC.'),
+  body('totalAmount').optional().isFloat({ min: 0 }).withMessage('Total amount must be a positive number.'),
+  body('advancePaid').optional().isFloat({ min: 0 }).withMessage('Advance paid must be a positive number.'),
+  body('paymentMethod').optional().isIn(['CASH', 'UPI', 'CARD']).withMessage('Payment method must be CASH, UPI, or CARD.')
+], validate, async (req, res) => {
   try {
-    const { 
-      guestName, guestPhone, guestCount, bookingType, checkIn, checkOut, reqType, 
-      totalAmount, advancePaid, paymentMethod, propertyId 
+    const {
+      guestName, guestPhone, guestCount, bookingType, checkIn, checkOut, reqType,
+      totalAmount, advancePaid, paymentMethod, propertyId
     } = req.body;
-
-    if (!propertyId || !guestName || !checkIn || !checkOut) {
-      return res.status(400).json({ message: 'Missing required booking fields.' });
-    }
 
     console.log(`🛎️ New Reservation for ${guestName} (${guestCount || 1} Guests) at Property ${propertyId}`);
 
@@ -72,9 +92,20 @@ router.post('/create', verifyToken, async (req, res) => {
 // GET /api/bookings/property/:propertyId
 router.get('/property/:propertyId', verifyToken, async (req, res) => {
   try {
+    // RBAC: owners can only view their own properties; managers only their assigned one
+    if (req.user.role === 'PROPERTY_OWNER') {
+      const prop = await Property.findOne({ _id: req.params.propertyId, owner: req.user.userId });
+      if (!prop) return res.status(403).json({ message: 'Access denied.' });
+    } else if (req.user.role === 'HOTEL_MANAGER') {
+      const manager = await User.findById(req.user.userId);
+      if (manager.assignedProperty?.toString() !== req.params.propertyId) {
+        return res.status(403).json({ message: 'Access denied.' });
+      }
+    }
+
     const bookings = await Booking.find({ property: req.params.propertyId })
       .populate('assignedRooms.room', 'roomNumber category capacity')
-      .sort({ createdAt: -1 }); 
+      .sort({ createdAt: -1 });
     res.status(200).json(bookings);
   } catch (error) {
     res.status(500).json({ message: 'Internal Server Error' });
@@ -101,91 +132,95 @@ router.get('/property/:propertyId/pending', verifyToken, async (req, res) => {
 // ==========================================
 // 4. ASSIGN ROOMS & CHECK FOR DATE OVERLAPS (MULTI-ROOM ENGINE)
 // ==========================================
-// PUT /api/bookings/:id/assign
+const mongoose = require('mongoose');
+
 router.put('/:id/assign', verifyToken, async (req, res) => {
+  const { assignments } = req.body;
+
+  if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+    return res.status(400).json({ message: 'Please select at least one room to assign.' });
+  }
+
+  const session = await mongoose.startSession();
   try {
-    const bookingId = req.params.id;
-    // Expected Payload: { assignments: [{ roomId: 'abc', guestsInRoom: 2 }, { roomId: 'xyz', guestsInRoom: 3 }] }
-    const { assignments } = req.body; 
+    let result = null;
 
-    if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
-      return res.status(400).json({ message: 'Please select at least one room to assign.' });
-    }
+    await session.withTransaction(async () => {
+      const booking = await Booking.findById(req.params.id).session(session);
+      if (!booking) throw Object.assign(new Error('Booking not found.'), { status: 404 });
 
-    const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+      let totalAssignedGuests = 0;
+      let isAdjustmentNeeded = false;
+      const newAssignedRooms = [];
+      const assignedRoomNumbers = [];
 
-    let totalAssignedGuests = 0;
-    let isAdjustmentNeeded = false;
-    let newAssignedRooms = [];
-    let assignedRoomNumbers = [];
+      for (const assignment of assignments) {
+        const { roomId, guestsInRoom } = assignment;
+        totalAssignedGuests += Number(guestsInRoom);
 
-    // Loop through every room the manager selected to validate it
-    for (const assignment of assignments) {
-      const { roomId, guestsInRoom } = assignment;
-      totalAssignedGuests += Number(guestsInRoom);
+        const room = await Room.findById(roomId).session(session);
+        if (!room) throw Object.assign(new Error('Room not found.'), { status: 404 });
 
-      const room = await Room.findById(roomId);
-      if (!room) return res.status(404).json({ message: `Room not found.` });
+        if (!room.category.includes(booking.reqType)) {
+          throw Object.assign(
+            new Error(`Mismatch! Room ${room.roomNumber} is ${room.category}, but guest requested ${booking.reqType}.`),
+            { status: 400 }
+          );
+        }
 
-      if (!room.category.includes(booking.reqType)) {
-        return res.status(400).json({ 
-          message: `Mismatch! Room ${room.roomNumber} is ${room.category}, but guest requested ${booking.reqType}.` 
-        });
+        // Overlap check runs inside the same transaction so no concurrent write can sneak in
+        const overlappingBooking = await Booking.findOne({
+          _id: { $ne: booking._id },
+          'assignedRooms.room': roomId,
+          status: { $in: ['CONFIRMED', 'CHECKED_IN'] },
+          $and: [{ checkIn: { $lt: booking.checkOut } }, { checkOut: { $gt: booking.checkIn } }]
+        }).session(session);
+
+        if (overlappingBooking) {
+          throw Object.assign(
+            new Error(`Room ${room.roomNumber} is already booked during these dates/times! Please deselect it.`),
+            { status: 400 }
+          );
+        }
+
+        if (Number(guestsInRoom) > room.capacity) isAdjustmentNeeded = true;
+        newAssignedRooms.push({ room: roomId, guestsInRoom: Number(guestsInRoom) });
+        assignedRoomNumbers.push(room.roomNumber);
       }
 
-      // 🚨 MULTI-ROOM TIME ENGINE (OVERLAP CHECKER) 🚨
-      const overlappingBooking = await Booking.findOne({
-        _id: { $ne: booking._id }, // Exclude this exact booking just in case
-        'assignedRooms.room': roomId, // Check inside the new array
-        status: { $in: ['CONFIRMED', 'CHECKED_IN'] }, 
-        $and: [
-          { checkIn: { $lt: booking.checkOut } }, 
-          { checkOut: { $gt: booking.checkIn } }  
-        ]
-      });
-
-      if (overlappingBooking) {
-        return res.status(400).json({ 
-          message: `Room ${room.roomNumber} is already booked during these dates/times! Please deselect it.` 
-        });
+      // For ONLINE bookings, guestCount stores rooms requested (not people), so skip people count check
+      if (booking.source !== 'ONLINE' && totalAssignedGuests !== booking.guestCount) {
+        throw Object.assign(
+          new Error(`Guest mismatch! Booking is for ${booking.guestCount} guests, but you allocated ${totalAssignedGuests}.`),
+          { status: 400 }
+        );
       }
 
-      // Check if adjustments/extra beds are needed for THIS specific room
-      if (guestsInRoom > room.capacity) {
-        isAdjustmentNeeded = true;
+      // For ONLINE bookings, validate number of rooms assigned instead
+      if (booking.source === 'ONLINE' && assignments.length !== booking.guestCount) {
+        throw Object.assign(
+          new Error(`Room count mismatch! Guest requested ${booking.guestCount} room(s), but you assigned ${assignments.length}.`),
+          { status: 400 }
+        );
       }
 
-      newAssignedRooms.push({ room: roomId, guestsInRoom: Number(guestsInRoom) });
-      assignedRoomNumbers.push(room.roomNumber);
-    }
+      booking.assignedRooms = newAssignedRooms;
+      booking.status = 'CONFIRMED';
+      await booking.save({ session });
 
-    // --- Strict Guest Verification ---
-    if (totalAssignedGuests !== booking.guestCount) {
-      return res.status(400).json({ 
-        message: `Guest mismatch! Booking is for ${booking.guestCount} guests, but you allocated ${totalAssignedGuests}. Please distribute correctly.` 
-      });
-    }
-
-    // Save the array to the booking!
-    booking.assignedRooms = newAssignedRooms;
-    booking.status = 'CONFIRMED';
-    await booking.save();
-
-    let successMessage = `Rooms ${assignedRoomNumbers.join(', ')} successfully assigned!`;
-    if (isAdjustmentNeeded) {
-      successMessage += ` Note: Extra bed adjustments required due to room capacities.`;
-    }
-
-    res.status(200).json({
-      message: successMessage,
-      booking,
-      isAdjustmentNeeded
+      result = { booking, assignedRoomNumbers, isAdjustmentNeeded };
     });
+
+    let successMessage = `Rooms ${result.assignedRoomNumbers.join(', ')} successfully assigned!`;
+    if (result.isAdjustmentNeeded) successMessage += ' Note: Extra bed adjustments required due to room capacities.';
+
+    res.status(200).json({ message: successMessage, booking: result.booking, isAdjustmentNeeded: result.isAdjustmentNeeded });
 
   } catch (error) {
     console.error('Room Assignment Error:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    res.status(error.status || 500).json({ message: error.message || 'Internal Server Error' });
+  } finally {
+    session.endSession();
   }
 });
 
@@ -195,7 +230,7 @@ router.put('/:id/assign', verifyToken, async (req, res) => {
 // PUT /api/bookings/:id/status
 router.put('/:id/status', verifyToken, async (req, res) => {
   try {
-    const { status, additionalPayment, paymentMethod } = req.body; 
+    const { status, additionalPayment, paymentMethod, documentUrl } = req.body;
     const bookingId = req.params.id;
 
     const validStatuses = ['PENDING_ASSIGNMENT', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED'];
@@ -207,6 +242,11 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     if (!booking) return res.status(404).json({ message: 'Booking not found.' });
 
     booking.status = status;
+
+    // Save ID proof URL if provided (staff uploads during check-in for online bookings)
+    if (documentUrl && documentUrl !== 'pending_upload') {
+      booking.documentUrl = documentUrl;
+    }
 
     // --- FINANCIAL LEDGER UPDATE ---
     if (additionalPayment && Number(additionalPayment) > 0) {

@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   // --- THE 3-LAYER ROLE SYSTEM ---
   role: {
     type: String,
-    enum: ['SUPER_ADMIN', 'PROPERTY_OWNER', 'HOTEL_MANAGER'],
+    enum: ['SUPER_ADMIN', 'PROPERTY_OWNER', 'HOTEL_MANAGER', 'DEVELOPER'],
     required: true
   },
 
@@ -41,17 +41,33 @@ const userSchema = new mongoose.Schema({
     default: null
   },
 
-  // The Hierarchy Tracker: 
-  // - Admin ID goes here if they created an Owner.
-  // - Owner ID goes here if they created a Manager.
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     default: null
+  },
+
+  // Account suspension (set by admin/developer — prevents login without deleting data)
+  suspended: {
+    type: Boolean,
+    default: false
+  },
+
+  suspendedReason: {
+    type: String,
+    default: null
+  },
+
+  lastLogin: { type: Date, default: null },
+
+  // Stores hashed refresh token; null when logged out
+  refreshToken: {
+    type: String,
+    default: null
   }
 
-}, { 
-  timestamps: true // Automatically adds createdAt and updatedAt dates
+}, {
+  timestamps: true
 });
 
 module.exports = mongoose.model('User', userSchema);

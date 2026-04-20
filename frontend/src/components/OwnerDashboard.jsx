@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Building2, MapPin, Phone, Plus, User, Mail, Lock, Edit, X, Save, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Building2, MapPin, Phone, Plus, User, Mail, Lock, Edit, X, Save, Loader2, ImagePlus, Trash2, Images } from 'lucide-react';
 
 export default function OwnerDashboard({ user }) {
   const [hotels, setHotels] = useState([]);
@@ -11,6 +11,44 @@ export default function OwnerDashboard({ user }) {
     name: '', address: '', contactNumber: '',
     managerName: '', managerEmail: '', managerPassword: ''
   });
+
+  // State for PHOTO UPLOAD
+  const [photoUploading, setPhotoUploading] = useState(''); // hotelId currently uploading
+  const photoInputRefs = useRef({});
+
+  const handlePhotoUpload = async (hotelId, files) => {
+    if (!files || files.length === 0) return;
+    setPhotoUploading(hotelId);
+    try {
+      const token = localStorage.getItem('hotel_auth_token');
+      const fd = new FormData();
+      Array.from(files).forEach(f => fd.append('photos', f));
+      const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: fd
+      });
+      if (res.ok) fetchHotels();
+      else {
+        const d = res.headers.get('content-type')?.includes('application/json') ? await res.json() : {};
+        alert(d.message || 'Photo upload failed.');
+      }
+    } catch { alert('Upload failed.'); }
+    finally { setPhotoUploading(''); }
+  };
+
+  const handlePhotoDelete = async (hotelId, photoUrl) => {
+    if (!window.confirm('Remove this photo?')) return;
+    try {
+      const token = localStorage.getItem('hotel_auth_token');
+      const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ photoUrl })
+      });
+      if (res.ok) fetchHotels();
+    } catch { alert('Delete failed.'); }
+  };
 
   // State for EDITING
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -255,6 +293,62 @@ export default function OwnerDashboard({ user }) {
                         <span className="text-xs font-semibold text-gray-700">{hotel.managerDetails?.email || 'Not Linked'}</span>
                       </div>
                     </div>
+                  </div>
+
+                  {/* PHOTO GALLERY */}
+                  <div className="mt-5 pt-5 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center">
+                        <Images className="w-3 h-3 mr-1" /> Hotel Photos ({(hotel.photos || []).length}/5)
+                      </span>
+                      {(hotel.photos || []).length < 5 && (
+                        <button
+                          type="button"
+                          onClick={() => photoInputRefs.current[hotel._id]?.click()}
+                          disabled={photoUploading === hotel._id}
+                          className="flex items-center text-[10px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        >
+                          {photoUploading === hotel._id
+                            ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            : <ImagePlus className="w-3 h-3 mr-1" />}
+                          Upload
+                        </button>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        className="hidden"
+                        ref={el => { photoInputRefs.current[hotel._id] = el; }}
+                        onChange={e => handlePhotoUpload(hotel._id, e.target.files)}
+                      />
+                    </div>
+
+                    {(hotel.photos || []).length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => photoInputRefs.current[hotel._id]?.click()}
+                        className="w-full h-20 border-2 border-dashed border-gray-200 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-blue-300 hover:text-blue-400 transition-colors"
+                      >
+                        <ImagePlus className="w-5 h-5 mb-1" />
+                        <span className="text-[10px] font-medium">Add photos (up to 5)</span>
+                      </button>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        {hotel.photos.map((url, i) => (
+                          <div key={i} className="relative group/photo aspect-square rounded-lg overflow-hidden bg-gray-100">
+                            <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => handlePhotoDelete(hotel._id, url)}
+                              className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-4 h-4 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
