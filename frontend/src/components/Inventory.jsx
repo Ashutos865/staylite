@@ -1,18 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck } from 'lucide-react';
+import { API, authHeader, authHeaders } from '../utils/api.js';
 
 // Reusable confirmation dialog
 function ConfirmModal({ title, message, confirmLabel = 'Confirm', confirmClass = 'bg-red-600 hover:bg-red-700', onConfirm, onCancel }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-        <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
-        <p className="text-sm text-gray-500 mb-6">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <button onClick={onCancel} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+    <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-1.5">{title}</h3>
+        <p className="text-sm text-gray-500 mb-6 leading-relaxed">{message}</p>
+        <div className="flex gap-2.5 justify-end">
+          <button onClick={onCancel} className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
             Cancel
           </button>
-          <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${confirmClass}`}>
+          <button onClick={onConfirm} className={`px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition ${confirmClass}`}>
             {confirmLabel}
           </button>
         </div>
@@ -387,150 +388,142 @@ export default function Inventory({ user }) {
   };
 
   return (
-    <div className="p-4 sm:p-8 flex flex-col lg:flex-row gap-6 lg:gap-8 relative min-h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] lg:overflow-hidden">
-      
-      {/* --- LEFT COLUMN: MAIN INVENTORY --- */}
-      <div className="flex-1 lg:overflow-y-auto lg:pr-2 lg:pb-10">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Property Inventory</h1>
-            <p className="text-xs sm:text-sm text-gray-500 mt-1">Manage physical rooms, filters, and live assignments.</p>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden flex-1 sm:flex-none">
-              <div className="px-3 text-gray-400 border-r border-gray-200 bg-gray-50"><Filter className="w-4 h-4" /></div>
-              <select 
-                value={categoryFilter} 
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="px-3 py-2 w-full text-sm font-medium focus:outline-none text-gray-700 bg-white"
-              >
-                <option value="ALL">All Categories</option>
-                <option value="AC">AC Rooms</option>
-                <option value="NON_AC">Non-AC Rooms</option>
-              </select>
-            </div>
+    <div className="p-5 sm:p-8 flex flex-col lg:flex-row gap-6 relative min-h-[calc(100vh-56px)] lg:h-[calc(100vh-56px)] lg:overflow-hidden">
 
+      {/* ── Left: Room Grid ── */}
+      <div className="flex-1 lg:overflow-y-auto lg:pr-1 lg:pb-10">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <DoorOpen className="w-5 h-5 text-blue-600" /> Property Inventory
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">Manage rooms and live assignments.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value)}
+              className="flex-1 sm:flex-none border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+            >
+              <option value="ALL">All Categories</option>
+              <option value="AC">AC Rooms</option>
+              <option value="NON_AC">Non-AC Rooms</option>
+            </select>
             {(user?.role === 'PROPERTY_OWNER' || user?.role === 'SUPER_ADMIN') && (
-              <select 
-                value={activePropertyId} 
-                onChange={(e) => setActivePropertyId(e.target.value)}
-                className="flex-1 sm:flex-none border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+              <select
+                value={activePropertyId}
+                onChange={e => setActivePropertyId(e.target.value)}
+                className="flex-1 sm:flex-none border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               >
-                <option value="ALL">{user?.role === 'SUPER_ADMIN' ? '🌍 All Properties (God View)' : '🏢 All My Properties'}</option>
-                {properties.map(prop => (
-                  <option key={prop._id} value={prop._id}>{prop.name}</option>
-                ))}
+                <option value="ALL">{user?.role === 'SUPER_ADMIN' ? 'All Properties' : 'All My Properties'}</option>
+                {properties.map(prop => <option key={prop._id} value={prop._id}>{prop.name}</option>)}
               </select>
             )}
-
             {(user?.role === 'PROPERTY_OWNER' || user?.role === 'SUPER_ADMIN') && (
-              <button 
-                onClick={() => { setStatus({type:'', message:''}); setIsAddRoomModalOpen(true); }}
+              <button
+                onClick={() => { setStatus({ type: '', message: '' }); setIsAddRoomModalOpen(true); }}
                 disabled={activePropertyId === 'ALL' || !activePropertyId}
-                title={activePropertyId === 'ALL' ? "Select a specific property to add rooms" : "Add Room"}
-                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg flex items-center justify-center text-sm font-medium transition-colors"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
               >
-                <Plus className="w-4 h-4 mr-2" /> Add Room
+                <Plus className="w-4 h-4" /> Add Room
               </button>
             )}
           </div>
         </div>
 
-        {/* Room Grid */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-125">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200">
-                <th className="px-4 sm:px-6 py-4 whitespace-nowrap">Room No.</th>
-                <th className="px-4 sm:px-6 py-4 whitespace-nowrap">Category & Capacity</th>
-                <th className="px-4 sm:px-6 py-4 whitespace-nowrap">Current Status / Occupant</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 text-sm">
-              {isLoading ? (
-                <tr><td colSpan="3" className="px-6 py-8 text-center text-gray-400"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2"/> Syncing with Database...</td></tr>
-              ) : filteredRooms.length === 0 ? (
-                <tr><td colSpan="3" className="px-6 py-8 text-center text-gray-400">No rooms found for this selection.</td></tr>
-              ) : (
-                filteredRooms.map((room) => {
-                  // Check if this room exists in any active booking's assignedRooms array
-                  const occupant = activeBookings.find(b => 
+        {/* Room table */}
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm min-w-125">
+              <thead>
+                <tr className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                  <th className="px-6 py-3.5">Room</th>
+                  <th className="px-6 py-3.5">Category</th>
+                  <th className="px-6 py-3.5">Status / Occupant</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {isLoading ? (
+                  <tr><td colSpan="3" className="py-16 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> Syncing…</td></tr>
+                ) : filteredRooms.length === 0 ? (
+                  <tr><td colSpan="3" className="py-16 text-center text-gray-400">No rooms found.</td></tr>
+                ) : filteredRooms.map(room => {
+                  const occupant = activeBookings.find(b =>
                     b.assignedRooms?.some(ar => (ar.room?._id || ar.room) === room._id)
                   );
-
                   return (
-                    <tr key={room._id} className="hover:bg-gray-50">
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                        <div className="font-bold text-gray-900 text-base">{room.roomNumber}</div>
+                    <tr key={room._id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-gray-900 text-base">{room.roomNumber}</p>
                         {activePropertyId === 'ALL' && (
-                          <div className="text-[10px] font-bold text-indigo-600 flex items-center mt-0.5">
-                            <Building className="w-3 h-3 mr-1" /> {getPropertyName(room.property)}
-                          </div>
+                          <p className="text-[10px] text-indigo-600 font-medium flex items-center gap-1 mt-0.5">
+                            <Building className="w-3 h-3" /> {getPropertyName(room.property)}
+                          </p>
                         )}
                       </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded text-xs font-bold ${!room.category.includes('NON_AC') ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                            {room.category.replace('_', ' ')}
-                          </span>
-                          <span className="text-xs text-gray-500 flex items-center"><Users className="w-3 h-3 mr-1" /> Max {room.capacity}</span>
-                        </div>
+                      <td className="px-6 py-4">
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${!room.category.includes('NON_AC') ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {room.category.replace(/_/g, ' ')}
+                        </span>
+                        <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><Users className="w-3 h-3" /> Max {room.capacity}</p>
                       </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4">
                         {room.currentStatus === 'AVAILABLE' && !occupant ? (
-                          <span className="text-green-600 font-medium flex items-center"><DoorOpen className="w-4 h-4 mr-1"/> Available</span>
+                          <span className="flex items-center gap-1.5 text-emerald-600 text-sm font-semibold">
+                            <DoorOpen className="w-4 h-4" /> Available
+                          </span>
                         ) : (
                           <div>
-                            <span className="text-red-500 font-bold flex items-center text-xs mb-1"><DoorClosed className="w-3 h-3 mr-1"/> OCCUPIED</span>
+                            <span className="flex items-center gap-1 text-red-500 text-xs font-bold mb-1">
+                              <DoorClosed className="w-3.5 h-3.5" /> Occupied
+                            </span>
                             {occupant && (
-                              <div className="flex flex-col">
-                                <span className="text-sm font-semibold text-gray-900 flex items-center">
-                                  <User className="w-3 h-3 mr-1 text-gray-400"/> 
-                                  {occupant.guestName} 
-                                  <span className="text-gray-400 font-normal ml-1">
-                                    (Group of {occupant.guestCount || 1})
-                                  </span>
-                                </span>
-                                <span className="text-[10px] text-gray-500 mt-0.5">Leaves: {new Date(occupant.checkOut).toLocaleDateString()}</span>
-                              </div>
+                              <>
+                                <p className="text-sm font-semibold text-gray-900 flex items-center gap-1">
+                                  <User className="w-3 h-3 text-gray-400" /> {occupant.guestName}
+                                  <span className="text-gray-400 font-normal text-xs">({occupant.guestCount || 1})</span>
+                                </p>
+                                <p className="text-[10px] text-gray-400 mt-0.5">Leaves: {new Date(occupant.checkOut).toLocaleDateString()}</p>
+                              </>
                             )}
                           </div>
                         )}
                       </td>
                     </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      {/* --- RIGHT COLUMN: MASTER BOOKING QUEUE --- */}
-      <div className="w-full lg:w-96 flex flex-col lg:h-full border-t lg:border-t-0 lg:border-l border-gray-100 pt-6 lg:pt-0 lg:pl-6 shrink-0">
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col max-h-[600px] lg:max-h-none lg:h-full overflow-hidden">
-          
-          <div className="p-4 border-b border-gray-100 bg-gray-50 shrink-0">
-            <h2 className="text-base font-bold text-gray-900 flex items-center mb-3">
-              <CalendarDays className="w-5 h-5 text-indigo-500 mr-2" /> Booking Queue
+      {/* ── Right: Booking Queue ── */}
+      <div className="w-full lg:w-96 flex flex-col lg:h-full shrink-0">
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col max-h-[600px] lg:max-h-none lg:h-full overflow-hidden">
+
+          <div className="px-4 pt-4 pb-3 border-b border-gray-100 shrink-0 space-y-3">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-blue-600" /> Booking Queue
             </h2>
             <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Search name or ID..." 
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search guest or ID…"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               />
             </div>
           </div>
 
-          <div className="flex bg-white border-b border-gray-100 shrink-0">
-            <button onClick={() => setQueueTab('ACTIVE')} className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${queueTab === 'ACTIVE' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-gray-500 hover:bg-gray-50'}`}>Active</button>
-            <button onClick={() => setQueueTab('UPCOMING')} className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${queueTab === 'UPCOMING' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-gray-500 hover:bg-gray-50'}`}>Upcoming</button>
-            <button onClick={() => setQueueTab('HISTORY')} className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${queueTab === 'HISTORY' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-gray-500 hover:bg-gray-50'}`}>History</button>
+          <div className="flex border-b border-gray-100 shrink-0">
+            {['ACTIVE', 'UPCOMING', 'HISTORY'].map(t => (
+              <button key={t} onClick={() => setQueueTab(t)} className={`flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-wider transition-colors ${queueTab === t ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
+                {t.charAt(0) + t.slice(1).toLowerCase()}
+              </button>
+            ))}
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30">

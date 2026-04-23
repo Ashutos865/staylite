@@ -1,106 +1,88 @@
 import { useState } from 'react';
-import { Hotel, Lock, Mail, Loader2, Wrench, ShieldX, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, Loader2, Wrench, ShieldX, ArrowLeft, Hotel, Eye, EyeOff, ChevronDown } from 'lucide-react';
 
-// ── Account Suspended Screen ─────────────────────────────────────────────────
+// ── Suspended Screen ──────────────────────────────────────────────────────────
 function SuspendedScreen({ message, onBack }) {
-  // Pull out just the reason (strip the "Account suspended." prefix if present)
   const reason = message?.replace(/^Account suspended\.\s*/i, '') || 'Contact the administrator for more information.';
-
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
       <div className="max-w-md w-full space-y-6 text-center">
-
-        {/* Icon */}
         <div className="flex justify-center">
-          <div className="w-24 h-24 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center">
-            <ShieldX className="w-12 h-12 text-red-500" />
+          <div className="w-20 h-20 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+            <ShieldX className="w-9 h-9 text-red-400" />
           </div>
         </div>
-
-        {/* Heading */}
-        <div className="space-y-2">
-          <h1 className="text-2xl font-black text-white tracking-tight">Account Suspended</h1>
-          <p className="text-sm text-gray-400">Your access to StayLite has been suspended.</p>
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Account Suspended</h1>
+          <p className="text-sm text-slate-400 mt-1">Your access to StayLite has been revoked.</p>
         </div>
-
-        {/* Reason card */}
-        <div className="bg-gray-900 border border-red-900/60 rounded-2xl p-5 text-left space-y-2">
-          <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Reason</div>
-          <p className="text-sm text-gray-200 leading-relaxed">{reason}</p>
+        <div className="bg-slate-900 border border-red-900/40 rounded-2xl p-5 text-left space-y-1.5">
+          <p className="text-[10px] font-semibold text-red-400 uppercase tracking-widest">Reason</p>
+          <p className="text-sm text-slate-200 leading-relaxed">{reason}</p>
         </div>
-
-        {/* Info */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-1 text-xs text-gray-400">
-          <div className="font-semibold text-gray-300 mb-2">What can you do?</div>
-          <div className="flex items-start gap-2">
-            <span className="text-gray-600 mt-0.5">→</span>
-            <span>Contact the administrator or developer team to appeal this decision.</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="text-gray-600 mt-0.5">→</span>
-            <span>Your data is preserved — access can be restored at any time.</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="text-gray-600 mt-0.5">→</span>
-            <span>Use the support ticket system once access is restored to follow up.</span>
-          </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-left space-y-2 text-xs text-slate-400">
+          <p className="font-semibold text-slate-300 text-sm">What can you do?</p>
+          {[
+            'Contact the administrator to appeal this decision.',
+            'Your data is preserved — access can be restored at any time.',
+            'Use the support system once access is restored.',
+          ].map((t, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-slate-600 mt-0.5">•</span>
+              <span>{t}</span>
+            </div>
+          ))}
         </div>
-
-        {/* Back button */}
         <button
           onClick={onBack}
-          className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-sm font-semibold transition"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Try a different account
         </button>
-
-        <p className="text-[10px] text-gray-700">StayLite · Powered by the dev team</p>
+        <p className="text-[10px] text-slate-700">StayLite · Hotel Management Platform</p>
       </div>
     </div>
   );
 }
 
-// ── Main Login Component ─────────────────────────────────────────────────────
+// ── Main Login ─────────────────────────────────────────────────────────────────
 export default function Login({ onLogin, maintenance }) {
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
+  const [showPass, setShowPass]   = useState(false);
+  const [error, setError]         = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [suspended, setSuspended] = useState(null); // null | { message }
+  const [suspended, setSuspended] = useState(null);
+  const [showDev, setShowDev]     = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-
     try {
       const response = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       });
-
       const data = await response.json();
-
       if (response.ok) {
         localStorage.setItem('hotel_auth_token', data.token);
         if (data.refreshToken) localStorage.setItem('hotel_refresh_token', data.refreshToken);
         localStorage.setItem('hotel_user_data', JSON.stringify(data.user));
         onLogin(data.user);
       } else if (response.status === 403) {
-        // Account suspended — show dedicated screen
         setSuspended({ message: data.message });
       } else {
-        setError(data.message);
+        setError(data.message || 'Authentication failed. Please try again.');
       }
     } catch {
-      setError('Cannot connect to server. Is the backend running?');
+      setError('Cannot connect to server. Please check your connection.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Show suspension screen instead of login form
   if (suspended) {
     return (
       <SuspendedScreen
@@ -111,82 +93,173 @@ export default function Login({ onLogin, maintenance }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center text-blue-600"><Hotel className="w-12 h-12" /></div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Platform Access</h2>
+    <div className="min-h-screen flex">
+
+      {/* ── Left brand panel ─────────────────────────────────────────────── */}
+      <div className="hidden lg:flex lg:w-[52%] bg-slate-900 flex-col justify-between p-12 relative overflow-hidden">
+        {/* Decorative circles */}
+        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-blue-600/10 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-16 w-80 h-80 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+
+        {/* Logo */}
+        <div className="flex items-center gap-3 relative z-10">
+          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
+            <Hotel className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-white font-bold text-lg tracking-tight">StayLite</span>
+        </div>
+
+        {/* Center content */}
+        <div className="relative z-10 space-y-6">
+          <div className="space-y-3">
+            <p className="text-blue-400 text-xs font-semibold uppercase tracking-widest">Hotel Management Platform</p>
+            <h1 className="text-4xl font-bold text-white leading-tight">
+              Manage your<br />
+              properties with<br />
+              <span className="text-blue-400">precision.</span>
+            </h1>
+          </div>
+          <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
+            Streamline bookings, track inventory, manage staff, and grow your hospitality business — all in one place.
+          </p>
+
+          {/* Feature pills */}
+          <div className="flex flex-wrap gap-2 pt-2">
+            {['Real-time Bookings', 'Multi-property', 'Staff Management', 'Financial Reports'].map(f => (
+              <span key={f} className="px-3 py-1 bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-full">{f}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom tagline */}
+        <p className="text-slate-600 text-xs relative z-10">© 2025 StayLite · All rights reserved</p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
-          <form className="space-y-6" onSubmit={handleSubmit}>
+      {/* ── Right form panel ─────────────────────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-10 bg-white">
+        <div className="w-full max-w-sm space-y-7">
 
-            {/* Maintenance banner */}
-            {maintenance?.isActive && (
-              <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-md text-xs">
-                <Wrench className="w-4 h-4 shrink-0 mt-0.5 text-yellow-600" />
-                <div>
-                  <div className="font-bold mb-0.5">Maintenance Mode Active</div>
-                  <div>{maintenance.message}</div>
-                  {maintenance.scheduledEnd && (
-                    <div className="mt-0.5 text-yellow-600">
-                      Expected back: {new Date(maintenance.scheduledEnd).toLocaleString('en-IN')}
-                    </div>
-                  )}
-                  <div className="mt-1 text-yellow-500 text-[10px]">Developer &amp; Admin accounts can still sign in.</div>
-                </div>
+          {/* Mobile logo */}
+          <div className="flex items-center gap-2.5 lg:hidden">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <Hotel className="w-4 h-4 text-white" />
+            </div>
+            <span className="font-bold text-gray-900 text-base tracking-tight">StayLite</span>
+          </div>
+
+          {/* Heading */}
+          <div className="space-y-1">
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Welcome back</h2>
+            <p className="text-sm text-gray-500">Sign in to your account to continue</p>
+          </div>
+
+          {/* Maintenance banner */}
+          {maintenance?.isActive && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3.5">
+              <Wrench className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold text-amber-800">Maintenance in Progress</p>
+                <p className="text-xs text-amber-700">{maintenance.message}</p>
+                {maintenance.scheduledEnd && (
+                  <p className="text-[11px] text-amber-600">
+                    Expected back: {new Date(maintenance.scheduledEnd).toLocaleString('en-IN')}
+                  </p>
+                )}
+                <p className="text-[10px] text-amber-500 mt-1">Developer &amp; Admin accounts can still sign in.</p>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* General error */}
-            {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm text-center">{error}</div>
-            )}
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+              {error}
+            </div>
+          )}
 
-            <div>
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
               <label className="block text-sm font-medium text-gray-700">Email address</label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
-                </div>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 <input
-                  type="email" required
-                  className="block w-full pl-10 border border-gray-300 rounded-md py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                  value={email} onChange={e => setEmail(e.target.value)}
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 />
               </div>
             </div>
 
-            <div>
+            <div className="space-y-1.5">
               <label className="block text-sm font-medium text-gray-700">Password</label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
-                </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 <input
-                  type="password" required
-                  className="block w-full pl-10 border border-gray-300 rounded-md py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                  value={password} onChange={e => setPassword(e.target.value)}
+                  type={showPass ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                >
+                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <button
-              type="submit" disabled={isLoading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-70 transition-colors"
+              type="submit"
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
             >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Secure Sign In'}
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign In'}
             </button>
           </form>
 
-          <div className="mt-6 border-t border-gray-200 pt-4">
-            <p className="text-xs text-gray-500 font-semibold mb-2">Test Accounts (Password: password)</p>
-            <ul className="text-xs text-gray-500 space-y-1">
-              <li>Admin: <span className="font-mono bg-gray-100 px-1">admin@ties.com</span></li>
-              <li>Owner: <span className="font-mono bg-gray-100 px-1">owner@hotel.com</span></li>
-              <li>Manager: <span className="font-mono bg-gray-100 px-1">manager@hotel.com</span></li>
-            </ul>
+          {/* Dev accounts (collapsible) */}
+          <div className="border-t border-gray-100 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowDev(v => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition"
+            >
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDev ? 'rotate-180' : ''}`} />
+              Demo credentials
+            </button>
+            {showDev && (
+              <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-2">
+                <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-widest mb-2">Password for all: <span className="font-mono">password</span></p>
+                {[
+                  { role: 'Admin', email: 'admin@ties.com', color: 'text-indigo-600 bg-indigo-50' },
+                  { role: 'Owner', email: 'owner@hotel.com', color: 'text-emerald-600 bg-emerald-50' },
+                  { role: 'Manager', email: 'manager@hotel.com', color: 'text-blue-600 bg-blue-50' },
+                ].map(({ role, email: e, color }) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => { setEmail(e); setPassword('password'); }}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/30 transition group"
+                  >
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${color}`}>{role}</span>
+                    <span className="text-xs font-mono text-gray-500 group-hover:text-blue-600 transition">{e}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
         </div>
       </div>
     </div>
