@@ -1,6 +1,102 @@
 @import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
 
 body {
-  background-color: #f9fafb; /* Tailwind's gray-50 */
-  color: #111827; /* Tailwind's gray-900 */
+  background-color: #f9fafb;
+  color: #111827;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* ── Dark Mode Global Overrides ──────────────────────────────────────────── */
+/*    Activated when <html class="dark"> is toggled.                         */
+/*    Covers all components without touching individual JSX files.           */
+
+.dark body {
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
+
+/* Surfaces */
+.dark .bg-white    { background-color: #1e293b !important; }
+.dark .bg-gray-50  { background-color: #162032 !important; }
+.dark .bg-gray-100 { background-color: #1e293b !important; }
+.dark .bg-gray-200 { background-color: #334155 !important; }
+
+/* Text */
+.dark .text-gray-900 { color: #f1f5f9 !important; }
+.dark .text-gray-800 { color: #e2e8f0 !important; }
+.dark .text-gray-700 { color: #cbd5e1 !important; }
+.dark .text-gray-600 { color: #94a3b8 !important; }
+.dark .text-gray-500 { color: #64748b !important; }
+.dark .text-gray-400 { color: #94a3b8 !important; }
+
+/* Borders */
+.dark .border-gray-50  { border-color: #1e293b !important; }
+.dark .border-gray-100 { border-color: #334155 !important; }
+.dark .border-gray-200 { border-color: #334155 !important; }
+.dark .border-gray-300 { border-color: #475569 !important; }
+
+/* Dividers */
+.dark .divide-gray-50  > :not([hidden]) ~ :not([hidden]) { border-color: #1e293b !important; }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #334155 !important; }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #334155 !important; }
+
+/* Inputs / selects / textareas */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.dark select,
+.dark textarea {
+  background-color: #253348 !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7) brightness(0.8);
+}
+
+/* Table rows */
+.dark .hover\:bg-gray-50:hover     { background-color: #1e293b !important; }
+.dark .hover\:bg-gray-100:hover    { background-color: #253348 !important; }
+.dark .bg-gray-50\/60              { background-color: rgba(22,32,50,0.7) !important; }
+.dark .hover\:bg-gray-50\/60:hover { background-color: rgba(30,41,59,0.6) !important; }
+.dark .bg-gray-50\/50              { background-color: rgba(22,32,50,0.5) !important; }
+
+/* Shadows */
+.dark .shadow-sm  { box-shadow: 0 1px 3px 0 rgba(0,0,0,0.5) !important; }
+.dark .shadow-md  { box-shadow: 0 4px 8px -1px rgba(0,0,0,0.6) !important; }
+.dark .shadow-xl  { box-shadow: 0 20px 30px -5px rgba(0,0,0,0.6) !important; }
+.dark .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6) !important; }
+
+/* Colored badge backgrounds — tinted so they stay readable but don't bleed */
+.dark .bg-blue-50    { background-color: rgba(37,99,235,0.18)  !important; }
+.dark .bg-green-50   { background-color: rgba(22,163,74,0.18)  !important; }
+.dark .bg-emerald-50 { background-color: rgba(16,185,129,0.18) !important; }
+.dark .bg-red-50     { background-color: rgba(220,38,38,0.18)  !important; }
+.dark .bg-amber-50   { background-color: rgba(245,158,11,0.18) !important; }
+.dark .bg-orange-50  { background-color: rgba(249,115,22,0.18) !important; }
+.dark .bg-purple-50  { background-color: rgba(147,51,234,0.18) !important; }
+.dark .bg-indigo-50  { background-color: rgba(99,102,241,0.18) !important; }
+.dark .bg-teal-50    { background-color: rgba(20,184,166,0.18) !important; }
+.dark .bg-yellow-50  { background-color: rgba(234,179,8,0.18)  !important; }
+
+/* Badge solid backgrounds */
+.dark .bg-blue-100   { background-color: rgba(37,99,235,0.25)  !important; }
+.dark .bg-indigo-100 { background-color: rgba(99,102,241,0.25) !important; }
+.dark .bg-yellow-100 { background-color: rgba(234,179,8,0.25)  !important; }
+.dark .bg-red-100    { background-color: rgba(220,38,38,0.25)  !important; }
+.dark .bg-emerald-100 { background-color: rgba(16,185,129,0.25) !important; }
+
+/* Colored badge borders */
+.dark .border-blue-100    { border-color: rgba(37,99,235,0.35)  !important; }
+.dark .border-blue-200    { border-color: rgba(37,99,235,0.4)   !important; }
+.dark .border-green-100   { border-color: rgba(22,163,74,0.35)  !important; }
+.dark .border-green-200   { border-color: rgba(22,163,74,0.4)   !important; }
+.dark .border-emerald-100 { border-color: rgba(16,185,129,0.35) !important; }
+.dark .border-red-100     { border-color: rgba(220,38,38,0.35)  !important; }
+.dark .border-amber-100   { border-color: rgba(245,158,11,0.35) !important; }
+.dark .border-amber-200   { border-color: rgba(245,158,11,0.4)  !important; }
+.dark .border-yellow-100  { border-color: rgba(234,179,8,0.35)  !important; }
+.dark .border-indigo-200  { border-color: rgba(99,102,241,0.4)  !important; }

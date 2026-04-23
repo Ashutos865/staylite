@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import {
   CalendarDays, Package, BarChart3, LogOut, Hotel, UserCircle, ShieldCheck,
   Building, Loader2, Menu, X, Terminal, CalendarRange, Building2, Wrench,
-  ShieldX, ArrowLeft, ChevronRight
+  ShieldX, ArrowLeft, ChevronRight, Sun, Moon
 } from 'lucide-react';
 import NotificationBell from './components/NotificationBell';
 import SupportWidget from './components/SupportWidget';
@@ -19,6 +19,9 @@ import GuestPortal from './components/GuestPortal';
 import IDUploadPage from './components/IDUploadPage';
 
 const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', '/inventory', '/summary', '/developer'];
+
+// ── Theme context ─────────────────────────────────────────────────────────────
+export const ThemeContext = createContext({ dark: false, toggle: () => {} });
 const isStaffPath = () => STAFF_PATHS.some(p => window.location.pathname === p || window.location.pathname.startsWith(p + '/'));
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -193,30 +196,30 @@ function CheckoutAlertBanner({ alert, onDismiss, onSnooze }) {
 
 // ── Topbar ────────────────────────────────────────────────────────────────────
 const Topbar = ({ user, onMenuClick }) => {
+  const { dark, toggle } = useContext(ThemeContext);
   const lastLoginStr = user.lastLogin
     ? new Date(user.lastLogin).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
     : null;
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shrink-0">
+    <header className="h-14 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shrink-0 transition-colors duration-200">
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuClick}
-          className="p-1.5 -ml-1.5 rounded-lg text-gray-500 hover:bg-gray-100 lg:hidden transition"
+          className="p-1.5 -ml-1.5 rounded-lg text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hidden transition"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Hotel / property info */}
         {user.role === 'HOTEL_MANAGER' && user.assignedPropertyName && (
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-            <Building2 className="w-3.5 h-3.5 text-gray-400" />
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-slate-300">
+            <Building2 className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
             {user.assignedPropertyName}
           </div>
         )}
         {user.role === 'PROPERTY_OWNER' && (
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-            <Building2 className="w-3.5 h-3.5 text-gray-400" />
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-slate-300">
+            <Building2 className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
             {user.hotelCount ?? 0} Hotel{user.hotelCount !== 1 ? 's' : ''}
           </div>
         )}
@@ -225,15 +228,28 @@ const Topbar = ({ user, onMenuClick }) => {
       <div className="flex items-center gap-2 sm:gap-3">
         <NotificationBell user={user} />
 
+        {/* Dark / Light mode toggle */}
+        <button
+          onClick={toggle}
+          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          className={`p-2 rounded-xl transition-all duration-200 ${
+            dark
+              ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 border border-slate-700'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-200'
+          }`}
+        >
+          {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </button>
+
         <div className="flex items-center gap-2.5">
           <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-gray-900 leading-tight">{user.name}</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 leading-tight">{user.name}</p>
             {lastLoginStr && (
-              <p className="text-[10px] text-gray-400 leading-tight">Last login: {lastLoginStr}</p>
+              <p className="text-[10px] text-gray-400 dark:text-slate-500 leading-tight">Last login: {lastLoginStr}</p>
             )}
           </div>
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-            <UserCircle className="w-5 h-5 text-blue-600" />
+          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+            <UserCircle className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
         </div>
       </div>
@@ -247,7 +263,7 @@ function StaffPortal({ user, onLogout }) {
   const { alert: checkoutAlert, dismiss, snooze } = useCheckoutAlert(user);
 
   return (
-    <div className="flex bg-gray-50 min-h-screen font-sans text-gray-900">
+    <div className="flex bg-gray-50 dark:bg-slate-950 min-h-screen font-sans text-gray-900 dark:text-slate-100 transition-colors duration-200">
       <Sidebar onLogout={onLogout} user={user} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
       <div className="flex-1 lg:ml-64 flex flex-col min-w-0 h-screen">
         <Topbar user={user} onMenuClick={() => setIsSidebarOpen(true)} />
@@ -359,6 +375,15 @@ export default function App() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [maintenance, setMaintenance]     = useState(null);
   const [suspendedInfo, setSuspendedInfo] = useState(null);
+  const [darkMode, setDarkMode]           = useState(() => localStorage.getItem('staylite_dark') === 'true');
+
+  // Apply / remove dark class on <html> whenever darkMode changes
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    localStorage.setItem('staylite_dark', String(darkMode));
+  }, [darkMode]);
+
+  const toggleDark = () => setDarkMode(d => !d);
 
   const handleLogout = async () => {
     const refreshToken = localStorage.getItem('hotel_refresh_token');
@@ -465,8 +490,8 @@ export default function App() {
   // Auth checking spinner
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex items-center gap-3 text-gray-500">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-950 transition-colors duration-200">
+        <div className="flex items-center gap-3 text-gray-500 dark:text-slate-400">
           <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
           <span className="text-sm font-medium">Loading platform…</span>
         </div>
@@ -494,8 +519,10 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <StaffPortal user={user} onLogout={handleLogout} />
-    </BrowserRouter>
+    <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
+      <BrowserRouter>
+        <StaffPortal user={user} onLogout={handleLogout} />
+      </BrowserRouter>
+    </ThemeContext.Provider>
   );
 }
