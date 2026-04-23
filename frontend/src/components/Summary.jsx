@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { API, getToken } from '../utils/api.js';
 
 export default function Summary({ user }) {
@@ -237,7 +237,7 @@ export default function Summary({ user }) {
       return acc;
     }, { total: 0, upi: 0, cash: 0, card: 0, online: 0 });
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: 33,
       head: [['#', 'Guest', 'Phone', 'Check-in', 'Check-out', 'Type', 'Source', 'Rooms', 'Total (₹)', 'Paid (₹)', 'Due (₹)', 'Payment', 'Status']],
       body: rows,
@@ -247,7 +247,7 @@ export default function Summary({ user }) {
       alternateRowStyles: { fillColor: [248, 250, 252] },
     });
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 8,
       head: [['Total (₹)', 'UPI (₹)', 'Cash (₹)', 'Card (₹)', 'Cashfree (₹)']],
       body: [[
