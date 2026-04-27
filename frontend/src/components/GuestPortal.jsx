@@ -98,7 +98,7 @@ export default function GuestPortal() {
   useEffect(() => {
     fetchHotels();
     updateMeta(
-      'StayLite — Book Hotels Online | Best Prices Guaranteed',
+      'StayLite Book Hotels Online | Best Prices Guaranteed',
       'Discover and book the best hotels at the best prices. Instant confirmation, secure Cashfree payment.'
     );
 
