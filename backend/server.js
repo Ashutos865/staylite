@@ -10,12 +10,23 @@ const { requestLogger } = require('./middleware/requestLogger');
 // Initialize Express App
 const app = express();
 
+// Behind Nginx (reverse proxy) in production — trust the first proxy hop so
+// req.ip, rate limiting, and request logging see the real client IP, not Nginx.
+app.set('trust proxy', 1);
+
 // --- MIDDLEWARE ---
 app.use(express.json());
 app.use(cookieParser());
+
+// CORS allowlist — localhost for local dev + FRONTEND_URL (set in .env) for production.
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
 // Photos are stored on Cloudflare R2 — no local static serving needed
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: allowedOrigins,
   credentials: true
 }));
 
