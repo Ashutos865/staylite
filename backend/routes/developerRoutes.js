@@ -366,6 +366,16 @@ router.delete('/logs/purge', async (req, res) => {
   }
 });
 
+// DELETE /api/developer/logs/all
+router.delete('/logs/all', async (req, res) => {
+  try {
+    const result = await Log.deleteMany({});
+    res.json({ message: `Deleted all ${result.deletedCount} log entries.` });
+  } catch (error) {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
 // ==========================================
 // 9. ALL STAFF USERS (user management)
 // ==========================================
@@ -566,7 +576,62 @@ router.get('/stats/db-health', async (req, res) => {
 });
 
 // ==========================================
-// 19. MAINTENANCE MODE — GET (developer view)
+// 19. R2 STORAGE STATS
+// ==========================================
+// GET /api/developer/stats/r2
+router.get('/stats/r2', async (req, res) => {
+  try {
+    const { isConfigured } = require('../utils/r2');
+    if (!isConfigured()) {
+      return res.json({ configured: false });
+    }
+
+    const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId:     process.env.CF_R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY,
+      },
+    });
+
+    let totalSize = 0;
+    let totalObjects = 0;
+    let continuationToken;
+
+    do {
+      const cmd = new ListObjectsV2Command({
+        Bucket: process.env.CF_R2_BUCKET_NAME,
+        ContinuationToken: continuationToken,
+      });
+      const page = await client.send(cmd);
+      for (const obj of (page.Contents || [])) totalSize += obj.Size || 0;
+      totalObjects += (page.Contents || []).length;
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : null;
+    } while (continuationToken);
+
+    const limitBytes = 10 * 1024 * 1024 * 1024; // 10 GB free tier
+    const usedPct = (totalSize / limitBytes) * 100;
+
+    res.json({
+      configured:    true,
+      bucket:        process.env.CF_R2_BUCKET_NAME,
+      totalObjects,
+      usedBytes:     totalSize,
+      usedMB:        parseFloat((totalSize / 1024 / 1024).toFixed(2)),
+      usedGB:        parseFloat((totalSize / 1024 / 1024 / 1024).toFixed(3)),
+      limitGB:       10,
+      usedPct:       parseFloat(usedPct.toFixed(2)),
+      status:        usedPct >= 90 ? 'DANGER' : usedPct >= 70 ? 'WARNING' : 'OK',
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'R2 stats failed: ' + error.message });
+  }
+});
+
+// ==========================================
+// 20. MAINTENANCE MODE — GET (developer view)
 // ==========================================
 // GET /api/developer/maintenance
 router.get('/maintenance', async (req, res) => {

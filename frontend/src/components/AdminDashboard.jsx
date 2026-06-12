@@ -77,6 +77,46 @@ function Input({ ...props }) {
   );
 }
 
+// ── Tab button ─────────────────────────────────────────────────────────────
+function Tab({ id, icon: Icon, label, activeTab, setActiveTab }) {
+  return (
+    <button
+      onClick={() => setActiveTab(id)}
+      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+        activeTab === id
+          ? 'border-blue-600 text-blue-600'
+          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+      }`}
+    >
+      <Icon className="w-4 h-4" /> {label}
+    </button>
+  );
+}
+
+// ── Card wrapper ───────────────────────────────────────────────────────────
+function Card({ children, className = '' }) {
+  return (
+    <div className={`bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function CardHeader({ title, icon: Icon, badge, action }) {
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="flex items-center gap-2.5">
+        {Icon && <Icon className="w-4 h-4 text-gray-400" />}
+        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+        {badge != null && (
+          <span className="bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-0.5 rounded-full">{badge}</span>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('TENANTS');
@@ -246,40 +286,6 @@ export default function AdminDashboard() {
     } catch { setEditDevStatus({ type: 'error', message: 'Connection failed.' }); }
   };
 
-  // ── Tab button ─────────────────────────────────────────────────────────────
-  const Tab = ({ id, icon: Icon, label }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-        activeTab === id
-          ? 'border-blue-600 text-blue-600'
-          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-      }`}
-    >
-      <Icon className="w-4 h-4" /> {label}
-    </button>
-  );
-
-  // ── Card wrapper ───────────────────────────────────────────────────────────
-  const Card = ({ children, className = '' }) => (
-    <div className={`bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden ${className}`}>
-      {children}
-    </div>
-  );
-
-  const CardHeader = ({ title, icon: Icon, badge, action }) => (
-    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-      <div className="flex items-center gap-2.5">
-        {Icon && <Icon className="w-4 h-4 text-gray-400" />}
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-        {badge != null && (
-          <span className="bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-0.5 rounded-full">{badge}</span>
-        )}
-      </div>
-      {action}
-    </div>
-  );
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-5 sm:p-8 max-w-7xl">
@@ -297,9 +303,9 @@ export default function AdminDashboard() {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-7 overflow-x-auto gap-1">
-        <Tab id="TENANTS"    icon={Users}    label="Tenant Management" />
-        <Tab id="BOOKINGS"   icon={Globe}    label="Global Bookings" />
-        <Tab id="DEVELOPERS" icon={Terminal} label="Developer Accounts" />
+        <Tab id="TENANTS"    icon={Users}    label="Tenant Management"  activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Tab id="BOOKINGS"   icon={Globe}    label="Global Bookings"    activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Tab id="DEVELOPERS" icon={Terminal} label="Developer Accounts" activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
       {/* ── TENANTS ── */}

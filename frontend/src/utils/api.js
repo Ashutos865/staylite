@@ -1,10 +1,15 @@
 export const API = 'http://localhost:5000/api';
-export const getToken = () => localStorage.getItem('hotel_auth_token');
+
+let _token = null;
+export const setToken  = (t) => { _token = t; };
+export const clearToken = () => { _token = null; };
+export const getToken  = () => _token;
+
 export const authHeaders = () => ({
-  Authorization: `Bearer ${getToken()}`,
+  Authorization: `Bearer ${_token}`,
   'Content-Type': 'application/json',
 });
-export const authHeader = () => ({ Authorization: `Bearer ${getToken()}` });
+export const authHeader = () => ({ Authorization: `Bearer ${_token}` });
 
 export const STATUS_BADGE = {
   PENDING_ASSIGNMENT: 'bg-amber-50 text-amber-700 border-amber-200',

@@ -405,6 +405,21 @@ router.post('/payments/verify', async (req, res) => {
       return res.status(400).json({ message: 'orderId and bookingId are required.' });
     }
 
+    // Load the booking FIRST so we can bind the order to it (prevents marking
+    // an arbitrary booking PAID using some other booking's PAID order id).
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+
+    // Idempotent: already settled — don't re-verify or double-post a transaction.
+    if (booking.paymentStatus === 'PAID') {
+      return res.json({ status: 'PAID', message: 'Payment already verified.' });
+    }
+
+    // The order being verified MUST be the one created for this booking.
+    if (!booking.cashfreeOrderId || booking.cashfreeOrderId !== orderId) {
+      return res.status(400).json({ message: 'This order does not belong to the specified booking.' });
+    }
+
     const appId     = process.env.CASHFREE_APP_ID;
     const secretKey = process.env.CASHFREE_SECRET_KEY;
     const env       = process.env.CASHFREE_ENV || 'TEST';
@@ -424,20 +439,25 @@ router.post('/payments/verify', async (req, res) => {
     const cfData = await cfResponse.json();
 
     if (cfData.order_status === 'PAID') {
-      const booking = await Booking.findById(bookingId);
-      if (booking && booking.paymentStatus !== 'PAID') {
-        booking.paymentStatus     = 'PAID';
-        booking.advancePaid       = booking.totalAmount;
-        booking.paymentMethod     = 'CASHFREE';
-        booking.cashfreePaymentId = cfData.cf_order_id || orderId;
-        booking.transactions.push({
-          amount: booking.totalAmount,
-          method: 'CASHFREE',
-          date:   new Date(),
-          type:   'ADVANCE'
-        });
-        await booking.save();
+      // The amount actually paid must match what this booking owes.
+      const paidAmount = Number(cfData.order_amount);
+      if (!Number.isFinite(paidAmount) || Math.abs(paidAmount - booking.totalAmount) > 0.01) {
+        console.error(`Payment amount mismatch for booking ${bookingId}: paid ${cfData.order_amount}, expected ${booking.totalAmount}`);
+        return res.status(400).json({ status: 'AMOUNT_MISMATCH', message: 'Paid amount does not match the booking total.' });
       }
+
+      booking.paymentStatus     = 'PAID';
+      booking.advancePaid       = booking.totalAmount;
+      booking.paymentMethod     = 'CASHFREE';
+      booking.cashfreePaymentId = cfData.cf_order_id || orderId;
+      booking.transactions.push({
+        amount: booking.totalAmount,
+        method: 'CASHFREE',
+        date:   new Date(),
+        type:   'ADVANCE'
+      });
+      await booking.save();
+
       return res.json({ status: 'PAID', message: 'Payment verified successfully!' });
     }
 

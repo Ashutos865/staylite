@@ -8,12 +8,13 @@ A full-stack, multi-tenant hotel management platform with a public guest booking
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, Vite, Tailwind CSS v4, Lucide Icons, React Router v6 |
+| Frontend | React 19, Vite, Tailwind CSS v4, Lucide Icons, React Router v7 |
 | Backend | Node.js, Express 5, Mongoose 9 (CommonJS) |
 | Database | MongoDB Atlas (replica set required for transactions) |
-| Auth | JWT access tokens (2h) + Refresh tokens (7d, bcrypt-hashed in DB) |
+| Auth | JWT access token (2h, in-memory) + Refresh token (7d, bcrypt-hashed in DB, delivered as HttpOnly cookie via `cookie-parser`) |
+| Theming | Dark / light mode toggle, persisted in `localStorage`, Tailwind `dark:` class strategy on `<html>` |
 | Payments | Cashfree Payment Gateway v3 (sandbox + production) |
-| File Storage | Cloudflare R2 (S3-compatible, via `@aws-sdk/client-s3`) |
+| File Storage | Cloudflare R2 (S3-compatible, via `@aws-sdk/client-s3`); multipart parsing via `multer` |
 | QR Codes | `qrcode` npm package (browser-side generation) |
 | Validation | express-validator |
 | Rate Limiting | express-rate-limit (authenticated requests bypass general limiter) |
@@ -72,7 +73,7 @@ hotel-management-system/
 │   │   │   ├── IDUploadPage.jsx        # Phone-optimized ID proof upload page (QR target)
 │   │   │   ├── NotificationBell.jsx    # In-app bell (compose+schedule, inbox, URGENT modal, toast)
 │   │   │   └── SupportWidget.jsx       # Floating support widget (raise tickets, view replies)
-│   │   ├── App.jsx                     # Root router + maintenance overlay + checkout beep hook
+│   │   ├── App.jsx                     # Root router + theme provider (dark mode) + silent session restore + suspended/maintenance overlays + checkout beep hook
 │   │   └── main.jsx
 │   ├── index.html
 │   └── package.json
@@ -111,6 +112,8 @@ Create `backend/.env`:
 PORT=5000
 MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/<db>
 JWT_SECRET=your_super_secret_jwt_key
+# Optional — secret for signing refresh tokens (falls back to JWT_SECRET + '_refresh')
+REFRESH_TOKEN_SECRET=your_separate_refresh_secret
 
 # Cashfree Payment Gateway
 CASHFREE_APP_ID=TEST_xxxxxxxxxxxxxxxxxxxx
@@ -191,10 +194,11 @@ If maintenance mode is active, non-developer/admin staff see a full-screen maint
 - SEO: title, meta, OG tags, Twitter Card, JSON-LD schema
 
 ### Staff Authentication
-- JWT access token (2h) + Refresh token (7d, bcrypt-hashed)
-- Auto refresh on app load when token within 10 min of expiry
-- Server-side logout invalidates refresh token
-- **Suspended account** check — 403 with reason message
+- JWT access token (2h, kept **in memory only** — never persisted) + Refresh token (7d, bcrypt-hashed in DB)
+- Refresh token delivered as an **HttpOnly, SameSite=strict cookie** (`staylite_rt`, scoped to `/api/auth`) — not stored in JS
+- **Silent session restore**: on app load the frontend calls `POST /api/auth/refresh` (cookie sent automatically), then `GET /api/auth/me` to rehydrate the user profile
+- Server-side logout invalidates refresh token in DB and clears the cookie
+- **Suspended account** check — 403 with reason message; active sessions poll `GET /api/auth/status` every 2 min and drop to the Suspended overlay on live suspension
 - **Maintenance mode** check — 503 blocks login for OWNER/MANAGER (DEVELOPER/SUPER_ADMIN bypass)
 - Last login timestamp shown in topbar
 
@@ -203,7 +207,14 @@ If maintenance mode is active, non-developer/admin staff see a full-screen maint
 - Hotel name for HOTEL_MANAGER (from `assignedPropertyName`)
 - Hotels count for PROPERTY_OWNER (from `hotelCount`)
 - NotificationBell with live unread count
+- **Dark / Light mode toggle** (Sun/Moon button)
 - Last login timestamp
+
+### Dark / Light Mode
+- **Sun/Moon toggle** in the staff topbar
+- Preference persisted in `localStorage` (`staylite_dark`) and applied as a `dark` class on `<html>`
+- Theme provided app-wide via `ThemeContext`; shell (sidebar, topbar, page chrome) themed with Tailwind `dark:` variants
+- Defaults to light; survives reloads and is independent per browser
 
 ### Booking Inflow (Staff)
 - Create manual (walk-in) bookings
@@ -235,7 +246,7 @@ If maintenance mode is active, non-developer/admin staff see a full-screen maint
 - Revenue breakdown (UPI / Cash / Card / Cashfree)
 - Financial ledger with balance due / settled status
 - **Export to Excel** (FTD XL format)
-- **Export to PDF** (landscape, styled table)
+- **Export to PDF** (landscape, styled table) with a **live preview modal** (apply filters and preview before download; uses `jspdf-autotable` v5 `autoTable(doc, opts)` API)
 
 ### Property Owner Dashboard
 - Create hotel + auto-provision manager in one form
@@ -337,9 +348,11 @@ If maintenance mode is active, non-developer/admin staff see a full-screen maint
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/login` | None | Login — checks suspension, maintenance (503 for non-dev if active), returns token + user |
-| POST | `/refresh` | None | Exchange refresh token for new access token |
-| POST | `/logout` | None | Invalidates refresh token in DB |
+| POST | `/login` | None | Login — checks suspension, maintenance (503 for non-dev if active), sets HttpOnly refresh cookie, returns access token + user |
+| POST | `/refresh` | Cookie | Exchange refresh cookie (`staylite_rt`) for a new access token |
+| POST | `/logout` | Cookie | Invalidates refresh token in DB + clears the cookie |
+| GET | `/status` | Access token | Lightweight suspension check — polled by active sessions (403 if suspended) |
+| GET | `/me` | Access token | Full user profile for session restore after silent refresh |
 
 ### Admin — `/api/admin`
 
@@ -563,6 +576,7 @@ PENDING_ASSIGNMENT  →  CONFIRMED  →  CHECKED_IN  →  CHECKED_OUT
 |---|---|---|---|
 | 9 | `OwnerDashboard.jsx` | Photo error called `.json()` unconditionally | Checks `content-type` before parsing |
 | 10 | `GuestPortal.jsx` | Stale availability data on 400 | Clears availability on non-OK response |
+| 13 | `Summary.jsx` | "Online Bookings" count was all-time, not date-scoped | Now counts only `source === 'ONLINE'` bookings checking in within the selected date filter |
 
 ### UI/UX — Pending Polish
 
@@ -570,7 +584,6 @@ PENDING_ASSIGNMENT  →  CONFIRMED  →  CHECKED_IN  →  CHECKED_OUT
 |---|---|---|
 | 11 | `BookingInflow.jsx` | Disabled "New Booking" button has no mobile hint |
 | 12 | `GuestPortal.jsx` | Room count shows before dates selected |
-| 13 | `Summary.jsx` | "Online Bookings" count is all-time, not date-scoped |
 
 ---
 
@@ -613,6 +626,8 @@ Flow:
 |---|---|---|
 | `MONGO_URI` | Yes | MongoDB Atlas connection string |
 | `JWT_SECRET` | Yes | Secret for signing access tokens |
+| `REFRESH_TOKEN_SECRET` | No | Secret for signing refresh tokens (default: `JWT_SECRET` + `_refresh`) |
+| `NODE_ENV` | No | `production` sets the `Secure` flag on the refresh cookie + disables `/api/admin/setup` |
 | `PORT` | No | Server port (default: 5000) |
 | `CASHFREE_APP_ID` | Yes (payments) | Cashfree App ID |
 | `CASHFREE_SECRET_KEY` | Yes (payments) | Cashfree Secret Key |
@@ -649,6 +664,7 @@ rs.initiate()
 - **Disable setup endpoint**: `NODE_ENV=production` returns 404 on `/api/admin/setup`.
 - **Logs**: MongoDB TTL auto-purges logs after 30 days. Manual cleanup available in Developer Console.
 - **Maintenance mode**: Survives server restarts (stored in MongoDB). Only DEVELOPER/SUPER_ADMIN can bypass.
+- **Auth cookie**: The refresh token is an HttpOnly cookie (`staylite_rt`, `SameSite=strict`, path `/api/auth`). Set `NODE_ENV=production` to add the `Secure` flag. Because it's `SameSite=strict`, deploy frontend + backend same-site (or adjust the cookie/CORS config) for the silent-refresh session to work in production. Update the CORS `origin` allowlist in `server.js` for your deployed frontend URL.
 
 ---
 

@@ -1,13 +1,14 @@
 import { useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Upload, CheckCircle2, AlertCircle, Camera, FileImage, Hotel } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Camera, FileImage, Hotel, FolderOpen } from 'lucide-react';
 
 export default function IDUploadPage() {
   const { token } = useParams();
   const [state, setState] = useState('idle'); // idle | uploading | success | error | expired
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState('');
-  const fileRef = useRef(null);
+  const fileRef   = useRef(null); // file picker (gallery / documents)
+  const cameraRef = useRef(null); // camera capture only
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -52,7 +53,8 @@ export default function IDUploadPage() {
     setState('idle');
     setPreview(null);
     setMessage('');
-    if (fileRef.current) fileRef.current.value = '';
+    if (fileRef.current)   fileRef.current.value   = '';
+    if (cameraRef.current) cameraRef.current.value = '';
   };
 
   return (
@@ -73,27 +75,58 @@ export default function IDUploadPage() {
           {/* IDLE — choose file */}
           {state === 'idle' && (
             <>
-              <p className="text-sm text-gray-600 text-center mb-6">
-                Take a photo of your government-issued ID or upload from gallery.
+              <p className="text-sm text-gray-600 text-center mb-5">
+                Upload a photo of your government-issued ID (Aadhaar, PAN, Passport, Driving Licence).
               </p>
 
+              {/* Hidden: camera capture */}
               <input
-                ref={fileRef}
+                ref={cameraRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
+                accept="image/jpeg,image/png,image/webp"
                 capture="environment"
                 className="hidden"
                 onChange={handleFileChange}
               />
 
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="w-full flex flex-col items-center justify-center gap-3 py-8 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors"
-              >
-                <Camera className="w-10 h-10 text-blue-500" />
-                <span className="text-sm font-semibold text-blue-700">Take Photo / Choose File</span>
-                <span className="text-xs text-blue-400">JPEG, PNG, WebP or PDF · max 10 MB</span>
-              </button>
+              {/* Hidden: file picker (gallery / documents) */}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              <div className="space-y-3">
+                {/* Camera button */}
+                <button
+                  onClick={() => cameraRef.current?.click()}
+                  className="w-full flex items-center gap-4 px-5 py-4 border-2 border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 active:bg-blue-200 transition-colors"
+                >
+                  <div className="w-11 h-11 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                    <Camera className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-blue-700">Take Photo</p>
+                    <p className="text-xs text-blue-400">Open camera and click a picture</p>
+                  </div>
+                </button>
+
+                {/* File picker button */}
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full flex items-center gap-4 px-5 py-4 border-2 border-gray-200 rounded-xl bg-gray-50 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                >
+                  <div className="w-11 h-11 rounded-full bg-gray-700 flex items-center justify-center shrink-0">
+                    <FolderOpen className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-gray-700">Choose from Files</p>
+                    <p className="text-xs text-gray-400">Gallery, Downloads or Documents · PDF ok</p>
+                  </div>
+                </button>
+              </div>
 
               <p className="text-[10px] text-gray-400 text-center mt-4">
                 Your document is stored securely and only visible to hotel staff.

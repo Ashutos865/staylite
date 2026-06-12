@@ -9,6 +9,21 @@ const { verifyToken } = require('../middleware/authMiddleware');
 
 const ACCESS_TOKEN_EXPIRY = '2h';
 const REFRESH_TOKEN_EXPIRY = '7d';
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+const setRefreshCookie = (res, token) => {
+  res.cookie('staylite_rt', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: REFRESH_COOKIE_MAX_AGE,
+    path: '/api/auth',
+  });
+};
+
+const clearRefreshCookie = (res) => {
+  res.clearCookie('staylite_rt', { path: '/api/auth' });
+};
 
 const generateTokens = (userId, role) => {
   const accessToken = jwt.sign(
@@ -85,10 +100,11 @@ router.post('/login', [
       hotelCount = await Property.countDocuments({ owner: user._id });
     }
 
+    setRefreshCookie(res, refreshToken);
+
     res.status(200).json({
       message: 'Login successful',
       token: accessToken,
-      refreshToken,
       user: {
         id: user._id,
         name: user.name,
@@ -110,18 +126,14 @@ router.post('/login', [
 
 // ==========================================
 // POST /api/auth/refresh
-// Exchange a valid refresh token for a new access token
+// Exchange a valid refresh token (HttpOnly cookie) for a new access token
 // ==========================================
-router.post('/refresh', [
-  body('refreshToken').notEmpty().withMessage('Refresh token is required.')
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ message: errors.array()[0].msg });
-  }
-
+router.post('/refresh', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.staylite_rt;
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'No session found. Please log in.' });
+    }
 
     // Verify the refresh token signature
     let decoded;
@@ -131,21 +143,24 @@ router.post('/refresh', [
         process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh'
       );
     } catch {
-      return res.status(401).json({ message: 'Invalid or expired refresh token. Please log in again.' });
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: 'Invalid or expired session. Please log in again.' });
     }
 
     // Find user and validate stored hash
     const user = await User.findById(decoded.userId);
     if (!user || !user.refreshToken) {
+      clearRefreshCookie(res);
       return res.status(401).json({ message: 'Session not found. Please log in again.' });
     }
 
     const isTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
     if (!isTokenValid) {
-      return res.status(401).json({ message: 'Refresh token mismatch. Please log in again.' });
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: 'Session mismatch. Please log in again.' });
     }
 
-    // Issue new access token (refresh token stays the same until it expires)
+    // Issue new access token (refresh cookie stays until it expires)
     const newAccessToken = jwt.sign(
       { userId: user._id, role: user.role },
       process.env.JWT_SECRET,
@@ -162,11 +177,13 @@ router.post('/refresh', [
 
 // ==========================================
 // POST /api/auth/logout
-// Invalidates the refresh token server-side
+// Invalidates the refresh token server-side and clears the cookie
 // ==========================================
 router.post('/logout', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.staylite_rt;
+    clearRefreshCookie(res);
+
     if (!refreshToken) return res.status(200).json({ message: 'Logged out.' });
 
     let decoded;
@@ -203,6 +220,40 @@ router.get('/status', verifyToken, async (req, res) => {
       });
     }
     res.json({ suspended: false });
+  } catch {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// GET /api/auth/me
+// Returns full user profile for session restore after silent refresh
+// ==========================================
+router.get('/me', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password -refreshToken');
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    let assignedPropertyName = null;
+    let hotelCount = 0;
+    if (user.role === 'HOTEL_MANAGER' && user.assignedProperty) {
+      const prop = await Property.findById(user.assignedProperty).select('name');
+      assignedPropertyName = prop?.name || null;
+    } else if (user.role === 'PROPERTY_OWNER') {
+      hotelCount = await Property.countDocuments({ owner: user._id });
+    }
+
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      maxHotelsAllowed: user.maxHotelsAllowed,
+      assignedProperty: user.assignedProperty,
+      assignedPropertyName,
+      hotelCount,
+      lastLogin: user.lastLogin,
+    });
   } catch {
     res.status(500).json({ message: 'Internal Server Error' });
   }

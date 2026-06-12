@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Building2, MapPin, Phone, Plus, User, Mail, Lock, Edit, X, Save, Loader2, ImagePlus, Trash2, Images } from 'lucide-react';
+import { getToken } from '../utils/api';
 
 export default function OwnerDashboard({ user }) {
   const [hotels, setHotels] = useState([]);
@@ -20,7 +21,7 @@ export default function OwnerDashboard({ user }) {
     if (!files || files.length === 0) return;
     setPhotoUploading(hotelId);
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('photos', f));
       const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
@@ -40,7 +41,7 @@ export default function OwnerDashboard({ user }) {
   const handlePhotoDelete = async (hotelId, photoUrl) => {
     if (!window.confirm('Remove this photo?')) return;
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -62,7 +63,7 @@ export default function OwnerDashboard({ user }) {
   // --- FETCH HOTELS (With Manager Details) ---
   const fetchHotels = async () => {
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch('http://localhost:5000/api/properties/my-hotels', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -87,7 +88,7 @@ export default function OwnerDashboard({ user }) {
     setStatus({ type: 'loading', message: 'Provisioning Hotel & Manager...' });
 
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch('http://localhost:5000/api/properties/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -128,7 +129,7 @@ export default function OwnerDashboard({ user }) {
     setEditStatus({ type: 'loading', message: 'Updating property...' });
 
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch(`http://localhost:5000/api/properties/${editForm.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

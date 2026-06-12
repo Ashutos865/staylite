@@ -4,8 +4,10 @@ import {
   AlertCircle, Clock, MessageSquare, Bug, Lightbulb, Wrench, IndianRupee, MoreHorizontal
 } from 'lucide-react';
 
+import { getToken } from '../utils/api';
+
 const API = 'http://localhost:5000/api';
-const hdrs = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('hotel_auth_token')}` });
+const hdrs = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` });
 
 const CATEGORIES = [
   { id: 'BUG_REPORT',       icon: Bug,          label: 'Bug Report',       color: 'text-red-500' },

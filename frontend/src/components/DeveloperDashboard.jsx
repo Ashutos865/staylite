@@ -8,9 +8,11 @@ import {
   AlertOctagon, Wrench, HelpCircle, Send, MessageSquare
 } from 'lucide-react';
 
+import { getToken } from '../utils/api';
+
 const API        = 'http://localhost:5000/api/developer';
 const SUPPORT_API = 'http://localhost:5000/api/support';
-const token = () => localStorage.getItem('hotel_auth_token');
+const token = () => getToken();
 const fmt = (n) => new Intl.NumberFormat().format(n);
 const fmtBytes = (b) => {
   if (!b) return '0 B';
@@ -75,6 +77,83 @@ const DeviceIcon = ({ device }) => {
   return <Monitor className={cls} />;
 };
 
+const ROLE_LABEL = {
+  SUPER_ADMIN:    'Admin',
+  PROPERTY_OWNER: 'Owner',
+  HOTEL_MANAGER:  'Manager',
+  DEVELOPER:      'Developer',
+};
+
+function describeLog(log) {
+  const m = log.method || '';
+  const r = log.route  || '';
+
+  // Auth
+  if (r.includes('/auth/login'))   return 'Logged in';
+  if (r.includes('/auth/logout'))  return 'Logged out';
+  if (r.includes('/auth/refresh')) return 'Session refreshed';
+  if (r.includes('/auth/me') || r.includes('/auth/status')) return 'Checked session';
+
+  // Bookings
+  if (m === 'POST'  && /\/bookings$/.test(r))              return 'Created new booking';
+  if (m === 'PATCH' && r.includes('/assign-rooms'))        return 'Assigned rooms to booking';
+  if (m === 'PATCH' && r.includes('/status'))              return 'Updated booking status';
+  if (r.includes('/bookings/all'))                         return 'Viewed all bookings';
+  if (r.includes('/my-guests'))                            return 'Looked up guest history';
+  if (m === 'GET'   && /\/bookings/.test(r))               return 'Viewed bookings';
+
+  // Properties / rooms / photos
+  if (m === 'POST'   && /\/properties$/.test(r))           return 'Created new hotel';
+  if (m === 'GET'    && r.includes('/my-hotels'))          return 'Viewed own hotels';
+  if (m === 'PATCH'  && /\/properties\/[^/]+$/.test(r))   return 'Updated hotel details';
+  if (m === 'POST'   && r.includes('/rooms'))              return 'Added new room';
+  if (m === 'PATCH'  && r.includes('/rooms'))              return 'Updated room details';
+  if (m === 'POST'   && r.includes('/photos'))             return 'Uploaded hotel photo';
+  if (m === 'DELETE' && r.includes('/photos'))             return 'Deleted hotel photo';
+
+  // Admin
+  if (r.includes('/create-owner'))     return 'Created property owner account';
+  if (r.includes('/create-developer')) return 'Created developer account';
+  if (m === 'PATCH' && r.includes('/owners') && r.includes('/suspend'))    return 'Changed owner suspension';
+  if (m === 'PATCH' && r.includes('/owners'))    return 'Edited owner account';
+  if (m === 'DELETE' && r.includes('/owners'))   return 'Deleted owner account';
+  if (m === 'GET'   && r.includes('/owners'))    return 'Viewed owner list';
+  if (m === 'GET'   && r.includes('/developers')) return 'Viewed developer list';
+
+  // Notifications
+  if (m === 'POST' && r.includes('/notifications/send'))  return 'Sent notification';
+  if (m === 'GET'  && r.includes('/notifications/inbox')) return 'Checked notifications';
+  if (r.includes('/notifications') && r.includes('/read')) return 'Marked notification read';
+
+  // Support
+  if (m === 'POST'  && /\/tickets$/.test(r))              return 'Raised support ticket';
+  if (m === 'POST'  && r.includes('/reply'))              return 'Replied to support ticket';
+  if (m === 'PATCH' && r.includes('/tickets'))            return 'Updated support ticket';
+  if (m === 'GET'   && r.includes('/tickets'))            return 'Viewed support tickets';
+
+  // Developer console
+  if (r.includes('/developer/logs'))       return 'Viewed system logs';
+  if (r.includes('/developer/errors'))     return 'Checked errors';
+  if (r.includes('/developer/stats'))      return 'Checked system stats';
+  if (r.includes('/developer/users'))      return 'Managed users';
+  if (r.includes('/developer/hotels'))     return 'Managed hotels';
+  if (r.includes('/developer/cleanup'))    return 'Ran cleanup';
+  if (r.includes('/developer/maintenance')) return 'Updated maintenance mode';
+
+  // Public / guest portal
+  if (r.includes('/public/hotels') && m === 'GET') return 'Guest browsed hotels';
+  if (r.includes('/public/availability'))          return 'Guest checked availability';
+  if (r.includes('/public/book'))                  return 'Guest made a booking';
+  if (r.includes('/public/payment'))               return 'Guest payment action';
+  if (r.includes('/public/track'))                 return 'Guest tracked booking';
+  if (r.includes('/public/upload-token'))          return 'Generated ID upload link';
+  if (r.includes('/public/upload-id'))             return 'Guest uploaded ID document';
+
+  // Fallback: strip /api/ prefix and prettify
+  const clean = r.replace(/^\/api\//, '').split('/').slice(0, 2).join('/');
+  return `${m} /${clean}`;
+}
+
 // ─── Stat Card ─────────────────────────────────────────────────────────────
 const StatCard = ({ icon: Icon, label, value, sub, color = 'blue', danger }) => (
   <div className={`bg-white border rounded-xl p-4 shadow-sm ${danger ? 'border-red-200' : 'border-gray-200'}`}>
@@ -135,6 +214,7 @@ export default function DeveloperDashboard() {
   const [errors, setErrors] = useState({ errors: [], warnings: [], errorsByRoute: [] });
   const [dbStats, setDbStats] = useState(null);
   const [dbHealth, setDbHealth] = useState(null);
+  const [r2Stats, setR2Stats] = useState(null);
   const [systemStats, setSystemStats] = useState(null);
   const [rateLimits, setRateLimits] = useState(null);
 
@@ -209,12 +289,14 @@ export default function DeveloperDashboard() {
   }, []);
 
   const fetchDB = useCallback(async () => {
-    const [dbRes, healthRes] = await Promise.all([
-      fetch(`${API}/stats/db`, { headers: { Authorization: `Bearer ${token()}` } }),
-      fetch(`${API}/stats/db-health`, { headers: { Authorization: `Bearer ${token()}` } })
+    const [dbRes, healthRes, r2Res] = await Promise.all([
+      fetch(`${API}/stats/db`,       { headers: { Authorization: `Bearer ${token()}` } }),
+      fetch(`${API}/stats/db-health`,{ headers: { Authorization: `Bearer ${token()}` } }),
+      fetch(`${API}/stats/r2`,       { headers: { Authorization: `Bearer ${token()}` } }),
     ]);
-    if (dbRes.ok) setDbStats(await dbRes.json());
+    if (dbRes.ok)    setDbStats(await dbRes.json());
     if (healthRes.ok) setDbHealth(await healthRes.json());
+    if (r2Res.ok)    setR2Stats(await r2Res.json());
   }, []);
 
   const fetchHotels = useCallback(async () => {
@@ -386,6 +468,15 @@ export default function DeveloperDashboard() {
       headers: { Authorization: `Bearer ${token()}` }
     });
     if (res.ok) { const d = await res.json(); alert(d.message); refresh(); }
+  };
+
+  const deleteAllLogs = async () => {
+    if (!confirm('Delete ALL logs permanently? This cannot be undone.')) return;
+    const res = await fetch(`${API}/logs/all`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}` }
+    });
+    if (res.ok) { const d = await res.json(); alert(d.message); setLogs([]); setLogsTotal(0); }
   };
 
   const handleResetIP = async (ip) => {
@@ -567,7 +658,7 @@ export default function DeveloperDashboard() {
                     {(() => {
                       const max = Math.max(...overview.api.byHour.map(h => h.count), 1);
                       return overview.api.byHour.map((h, i) => (
-                        <div key={i} className="flex flex-col items-center gap-0.5 flex-1 min-w-[12px]" title={`${h._id}: ${h.count} requests`}>
+                        <div key={i} className="flex flex-col items-center gap-0.5 flex-1 min-w-3" title={`${h._id}: ${h.count} requests`}>
                           <div
                             className="w-full rounded-sm bg-violet-500 transition-all"
                             style={{ height: `${(h.count / max) * 36}px`, minHeight: 2 }}
@@ -592,7 +683,7 @@ export default function DeveloperDashboard() {
                   <Filter className="w-3 h-3 text-gray-400" />
                   <select value={logFilter.type} onChange={e => applyLogFilter({ type: e.target.value })}
                     className="bg-transparent text-xs font-medium text-gray-700 outline-none">
-                    <option value="ALL">All Types</option>
+                    <option value="ALL">All Activity</option>
                     <option value="REQUEST">Requests</option>
                     <option value="ERROR">Errors</option>
                     <option value="WARNING">Warnings</option>
@@ -600,116 +691,105 @@ export default function DeveloperDashboard() {
                   </select>
                 </div>
                 <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1.5">
-                  <select value={logFilter.method} onChange={e => applyLogFilter({ method: e.target.value })}
-                    className="bg-transparent text-xs font-medium text-gray-700 outline-none">
-                    <option value="">All Methods</option>
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1.5">
                   <select value={logFilter.statusCode} onChange={e => applyLogFilter({ statusCode: e.target.value })}
                     className="bg-transparent text-xs font-medium text-gray-700 outline-none">
-                    <option value="">All Status</option>
-                    <option value="2xx">2xx Success</option>
-                    <option value="4xx">4xx Client Error</option>
-                    <option value="5xx">5xx Server Error</option>
+                    <option value="">All Statuses</option>
+                    <option value="2xx">Success</option>
+                    <option value="4xx">Client Errors</option>
+                    <option value="5xx">Server Errors</option>
                   </select>
                 </div>
-                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-1 min-w-[160px]">
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-1 min-w-40">
                   <Search className="w-3 h-3 text-gray-400" />
                   <input
                     value={logFilter.route}
                     onChange={e => applyLogFilter({ route: e.target.value })}
-                    placeholder="Filter by route..."
+                    placeholder="Search activity..."
                     className="bg-transparent text-xs outline-none flex-1 text-gray-700"
                   />
                 </div>
-                <button onClick={purgeLogs} className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition ml-auto">
-                  <Trash2 className="w-3 h-3" /> Purge Old
-                </button>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button onClick={purgeLogs} className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition">
+                    <Trash2 className="w-3 h-3" /> Purge Old
+                  </button>
+                  <button onClick={deleteAllLogs} className="flex items-center gap-1 px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition">
+                    <Trash2 className="w-3 h-3" /> Delete All
+                  </button>
+                </div>
               </div>
 
               <p className="text-xs text-gray-400">{fmt(logsTotal)} total entries · showing {logs.length}</p>
 
-              {/* Log table */}
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse min-w-175">
-                    <thead>
-                      <tr className="bg-gray-50 text-gray-400 text-[10px] uppercase tracking-wider border-b border-gray-100">
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Time</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Type</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Method</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Route</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Status</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Time</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">IP</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">Device</th>
-                        <th className="px-3 py-3 text-left whitespace-nowrap">OS / Browser</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {logs.length === 0 ? (
-                        <tr><td colSpan="9" className="py-8 text-center text-gray-400">No logs found.</td></tr>
-                      ) : logs.map((log) => (
-                        <>
-                          <tr
-                            key={log._id}
-                            onClick={() => setExpandedLog(expandedLog === log._id ? null : log._id)}
-                            className={`hover:bg-gray-50 cursor-pointer transition-colors ${log.type === 'ERROR' ? 'bg-red-50/30' : log.type === 'WARNING' ? 'bg-yellow-50/30' : ''}`}
-                          >
-                            <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap font-mono text-[10px]">
-                              {new Date(log.createdAt).toLocaleTimeString()}
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${STATUS_COLOR[log.type] || 'bg-gray-100 text-gray-500'}`}>
-                                {log.type}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap">
-                              {log.method && (
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${METHOD_COLOR[log.method] || 'bg-gray-100 text-gray-600'}`}>
-                                  {log.method}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono text-gray-700 max-w-[180px] truncate">{log.route}</td>
-                            <td className={`px-3 py-2.5 whitespace-nowrap ${statusBadge(log.statusCode)}`}>{log.statusCode}</td>
-                            <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{fmtTime(log.responseTime)}</td>
-                            <td className="px-3 py-2.5 font-mono text-gray-500 whitespace-nowrap text-[10px]">{log.ip}</td>
-                            <td className="px-3 py-2.5 whitespace-nowrap">
-                              <span className="flex items-center gap-1 text-gray-600">
-                                <DeviceIcon device={log.device} />{log.device}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">{log.os} / {log.browser}</td>
-                          </tr>
-                          {expandedLog === log._id && (
-                            <tr key={`${log._id}-expanded`} className="bg-gray-900">
-                              <td colSpan="9" className="px-4 py-3">
-                                <div className="font-mono text-[11px] text-green-300 space-y-1">
-                                  <div><span className="text-gray-500">message: </span>{log.message}</div>
-                                  <div><span className="text-gray-500">userId: </span>{log.userId || 'anonymous'}</div>
-                                  <div><span className="text-gray-500">role: </span>{log.userRole || '—'}</div>
-                                  <div><span className="text-gray-500">userAgent: </span><span className="text-gray-400 break-all">{log.userAgent}</span></div>
-                                  {log.stack && (
-                                    <div><span className="text-red-400">stack: </span><pre className="text-red-300 text-[10px] whitespace-pre-wrap break-all mt-1">{log.stack}</pre></div>
-                                  )}
-                                  {log.metadata && Object.keys(log.metadata).length > 0 && (
-                                    <div><span className="text-gray-500">metadata: </span>{JSON.stringify(log.metadata)}</div>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
+              {/* Activity feed */}
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
+                {logs.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-gray-400">No activity found.</div>
+                ) : logs.map((log) => {
+                  const isError   = log.type === 'ERROR';
+                  const isWarning = log.type === 'WARNING';
+                  const isSuccess = log.statusCode && log.statusCode < 300;
+                  const dotColor  = isError ? 'bg-red-500' : isWarning ? 'bg-yellow-400' : isSuccess ? 'bg-green-500' : 'bg-gray-300';
+                  const role      = ROLE_LABEL[log.userRole] || null;
+
+                  return (
+                    <div key={log._id}>
+                      <button
+                        onClick={() => setExpandedLog(expandedLog === log._id ? null : log._id)}
+                        className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition ${isError ? 'bg-red-50/40' : isWarning ? 'bg-yellow-50/30' : ''}`}
+                      >
+                        {/* Status dot */}
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+
+                        {/* Action + role */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold text-gray-800">{describeLog(log)}</span>
+                            {role && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                                log.userRole === 'HOTEL_MANAGER'  ? 'bg-blue-100 text-blue-700' :
+                                log.userRole === 'PROPERTY_OWNER' ? 'bg-indigo-100 text-indigo-700' :
+                                log.userRole === 'DEVELOPER'      ? 'bg-violet-100 text-violet-700' :
+                                log.userRole === 'SUPER_ADMIN'    ? 'bg-gray-800 text-white' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>{role}</span>
+                            )}
+                            {!log.userRole && <span className="text-[10px] text-gray-400">Guest</span>}
+                          </div>
+                          {isError && log.message && (
+                            <p className="text-[11px] text-red-500 mt-0.5 truncate">{log.message}</p>
                           )}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                        </div>
+
+                        {/* Status code + time */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          {log.statusCode && (
+                            <span className={`text-xs font-bold ${statusBadge(log.statusCode)}`}>{log.statusCode}</span>
+                          )}
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap">{timeAgo(log.createdAt)}</span>
+                          <ChevronRight className={`w-3.5 h-3.5 text-gray-300 transition-transform ${expandedLog === log._id ? 'rotate-90' : ''}`} />
+                        </div>
+                      </button>
+
+                      {/* Expanded detail */}
+                      {expandedLog === log._id && (
+                        <div className="bg-gray-50 border-t border-gray-100 px-4 py-3 space-y-1.5 text-xs text-gray-600">
+                          <div className="flex flex-wrap gap-x-6 gap-y-1">
+                            <span><span className="text-gray-400">Route: </span><span className="font-mono text-gray-700">{log.method} {log.route}</span></span>
+                            <span><span className="text-gray-400">Response: </span><span className="font-semibold">{fmtTime(log.responseTime)}</span></span>
+                            <span><span className="text-gray-400">Device: </span>{log.device || '—'}</span>
+                            {log.message && <span><span className="text-gray-400">Message: </span>{log.message}</span>}
+                          </div>
+                          {log.stack && (
+                            <div className="mt-2 bg-red-900/90 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-red-300 mb-1">Stack Trace</p>
+                              <pre className="text-red-200 text-[10px] whitespace-pre-wrap break-all">{log.stack}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Pagination */}
@@ -819,6 +899,38 @@ export default function DeveloperDashboard() {
                     </p>
                   )}
                 </div>
+              )}
+
+              {/* R2 Storage card */}
+              {r2Stats && (
+                r2Stats.configured ? (
+                  <div className={`rounded-xl border p-4 ${r2Stats.status === 'DANGER' ? 'bg-red-50 border-red-200' : r2Stats.status === 'WARNING' ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-gray-700 flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-orange-500" />
+                        Cloudflare R2 Storage
+                      </span>
+                      <span className={`text-xs font-black px-2 py-0.5 rounded-full ${r2Stats.status === 'DANGER' ? 'bg-red-100 text-red-700' : r2Stats.status === 'WARNING' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                        {r2Stats.usedMB} MB / {r2Stats.limitGB} GB free · {r2Stats.usedPct}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden border border-gray-200">
+                      <div
+                        className={`h-3 rounded-full transition-all ${r2Stats.status === 'DANGER' ? 'bg-red-500' : r2Stats.status === 'WARNING' ? 'bg-yellow-400' : 'bg-orange-500'}`}
+                        style={{ width: `${Math.min(r2Stats.usedPct, 100)}%`, minWidth: r2Stats.totalObjects > 0 ? '4px' : '0' }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+                      <span>{fmt(r2Stats.totalObjects)} file{r2Stats.totalObjects !== 1 ? 's' : ''} stored</span>
+                      <span>{r2Stats.bucket}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-300 p-4 flex items-center gap-3 text-sm text-gray-400">
+                    <Globe className="w-4 h-4 shrink-0" />
+                    Cloudflare R2 not configured — add CF_R2_* keys to .env
+                  </div>
+                )
               )}
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1447,7 +1559,7 @@ export default function DeveloperDashboard() {
                                     <option value="CLOSED">Closed</option>
                                   </select>
                                 </div>
-                                <div className="flex-1 min-w-[200px]">
+                                <div className="flex-1 min-w-50">
                                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Resolution Note (optional)</label>
                                   <input
                                     value={ticketResolution}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Lock, Mail, Loader2, Wrench, ShieldX, ArrowLeft, Hotel, Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { setToken } from '../utils/api';
 
 // ── Suspended Screen ──────────────────────────────────────────────────────────
 function SuspendedScreen({ message, onBack }) {
@@ -63,13 +64,12 @@ export default function Login({ onLogin, maintenance }) {
       const response = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
       if (response.ok) {
-        localStorage.setItem('hotel_auth_token', data.token);
-        if (data.refreshToken) localStorage.setItem('hotel_refresh_token', data.refreshToken);
-        localStorage.setItem('hotel_user_data', JSON.stringify(data.user));
+        setToken(data.token);
         onLogin(data.user);
       } else if (response.status === 403) {
         setSuspended({ message: data.message });

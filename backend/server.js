@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const path = require('path');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const { generalLimiter, authLimiter } = require('./middleware/rateLimiters');
 const { requestLogger } = require('./middleware/requestLogger');
 
@@ -11,6 +12,7 @@ const app = express();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
+app.use(cookieParser());
 // Photos are stored on Cloudflare R2 — no local static serving needed
 app.use(cors({
   origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],

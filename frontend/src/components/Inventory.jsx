@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck } from 'lucide-react';
-import { API, authHeader, authHeaders } from '../utils/api.js';
+import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck, Camera, FolderOpen } from 'lucide-react';
+import { API, authHeader, authHeaders, getToken } from '../utils/api.js';
 
 // Reusable confirmation dialog
 function ConfirmModal({ title, message, confirmLabel = 'Confirm', confirmClass = 'bg-red-600 hover:bg-red-700', onConfirm, onCancel }) {
@@ -57,6 +57,10 @@ export default function Inventory({ user }) {
   const [idQr, setIdQr] = useState({ status: 'idle', token: '', qrImg: '', fileUrl: '' });
   // idle | generating | ready | done | error | expired
   const idQrPollRef = useRef(null);
+  const [idUploadMode, setIdUploadMode] = useState('choose'); // choose | qr | direct
+  const [directUploading, setDirectUploading] = useState(false);
+  const staffCameraRef = useRef(null);
+  const staffFileRef   = useRef(null);
 
   const [roomForm, setRoomForm] = useState({
     roomNumber: '',
@@ -69,7 +73,7 @@ export default function Inventory({ user }) {
   useEffect(() => {
     const fetchProperties = async () => {
       try {
-        const token = localStorage.getItem('hotel_auth_token');
+        const token = getToken();
         
         if (user?.role === 'SUPER_ADMIN' || user?.role === 'PROPERTY_OWNER') {
           const endpoint = user?.role === 'SUPER_ADMIN' 
@@ -98,7 +102,7 @@ export default function Inventory({ user }) {
   const fetchInventoryData = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       
       const targetPropertyIds = activePropertyId === 'ALL' 
         ? properties.map(p => p._id) 
@@ -234,6 +238,34 @@ export default function Inventory({ user }) {
     if (idQrPollRef.current) clearInterval(idQrPollRef.current);
     const hasId = booking?.documentUrl && booking.documentUrl !== 'pending_upload';
     setIdQr({ status: hasId ? 'done' : 'idle', token: '', qrImg: '', fileUrl: hasId ? booking.documentUrl : '' });
+    setIdUploadMode(hasId ? 'choose' : 'choose');
+  };
+
+  const handleDirectIdUpload = async (file) => {
+    if (!file || !checkinBooking) return;
+    setDirectUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('idPhoto', file);
+      const res = await fetch(`http://localhost:5000/api/bookings/${checkinBooking._id}/upload-id`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setIdQr({ status: 'done', token: '', qrImg: '', fileUrl: data.fileUrl });
+        setIdUploadMode('choose');
+      } else {
+        alert(data.message || 'Upload failed.');
+      }
+    } catch {
+      alert('Network error. Please try again.');
+    } finally {
+      setDirectUploading(false);
+      if (staffCameraRef.current) staffCameraRef.current.value = '';
+      if (staffFileRef.current)   staffFileRef.current.value   = '';
+    }
   };
 
   // --- 4. API ACTIONS ---
@@ -242,7 +274,7 @@ export default function Inventory({ user }) {
     setStatus({ type: 'loading', message: 'Saving room to database...' });
 
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch(`http://localhost:5000/api/properties/${activePropertyId}/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -300,7 +332,7 @@ export default function Inventory({ user }) {
     }));
 
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch(`http://localhost:5000/api/bookings/${activeAssignment._id}/assign`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -322,7 +354,7 @@ export default function Inventory({ user }) {
 
   const handleStatusUpdate = async (bookingId, newStatus) => {
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const payload = {
         status: newStatus,
         additionalPayment: Number(paymentAmount) || 0,
@@ -369,7 +401,7 @@ export default function Inventory({ user }) {
 
   const handleCancelBooking = async (bookingId) => {
     try {
-      const token = localStorage.getItem('hotel_auth_token');
+      const token = getToken();
       const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -849,22 +881,21 @@ export default function Inventory({ user }) {
                 )}
               </div>
 
-              {/* ID PROOF SECTION — only for online bookings */}
-              {checkinBooking.source === 'ONLINE' && (
+              {/* ID PROOF SECTION — online bookings always, walk-ins only if not yet uploaded */}
+              {(checkinBooking.source === 'ONLINE' || !checkinBooking.documentUrl || checkinBooking.documentUrl === 'pending_upload') && (
                 <div className="mb-4 border border-gray-200 rounded-xl overflow-hidden">
                   <div className="bg-gray-50 px-4 py-2.5 flex items-center gap-2 border-b border-gray-100">
                     <ShieldCheck className="w-4 h-4 text-indigo-500" />
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Guest ID Proof</span>
-                    {idQr.status === 'done' && (
-                      <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Verified</span>
-                    )}
-                    {idQr.status !== 'done' && (
-                      <span className="ml-auto text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">Pending</span>
-                    )}
+                    {idQr.status === 'done'
+                      ? <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Verified</span>
+                      : <span className="ml-auto text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">Pending</span>
+                    }
                   </div>
 
                   <div className="p-4">
-                    {/* Already has ID */}
+
+                    {/* ── ID already received ── */}
                     {idQr.status === 'done' && (
                       <div className="flex items-center gap-3">
                         <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
@@ -872,66 +903,104 @@ export default function Inventory({ user }) {
                           <p className="text-xs font-semibold text-gray-700">ID document received</p>
                           <a href={idQr.fileUrl} target="_blank" rel="noreferrer"
                             className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-0.5">
-                            <ExternalLink className="w-3 h-3" /> View uploaded document
+                            <ExternalLink className="w-3 h-3" /> View document
                           </a>
                         </div>
-                        <button onClick={generateIdQr} className="text-[10px] text-gray-400 hover:text-gray-600 underline shrink-0">Replace</button>
+                        <button onClick={() => { setIdQr({ status: 'idle', token: '', qrImg: '', fileUrl: '' }); setIdUploadMode('choose'); }}
+                          className="text-[10px] text-gray-400 hover:text-gray-600 underline shrink-0">Replace</button>
                       </div>
                     )}
 
-                    {/* Idle — no ID yet */}
-                    {idQr.status === 'idle' && (
-                      <div className="flex flex-col items-center gap-2 py-1 text-center">
-                        <p className="text-xs text-gray-500">No ID uploaded. Generate a QR for the guest to scan.</p>
-                        <button onClick={generateIdQr}
-                          className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition">
-                          <QrCode className="w-3.5 h-3.5" /> Generate QR Code
+                    {/* ── Choose method ── */}
+                    {idQr.status !== 'done' && idUploadMode === 'choose' && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-500 text-center mb-3">How would you like to collect the guest's ID?</p>
+
+                        {/* Hidden inputs for direct staff upload */}
+                        <input ref={staffCameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment"
+                          className="hidden" onChange={e => handleDirectIdUpload(e.target.files?.[0])} />
+                        <input ref={staffFileRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+                          className="hidden" onChange={e => handleDirectIdUpload(e.target.files?.[0])} />
+
+                        {/* QR option */}
+                        <button onClick={() => { setIdUploadMode('qr'); generateIdQr(); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 border-2 border-indigo-200 rounded-xl bg-indigo-50 hover:bg-indigo-100 transition">
+                          <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center shrink-0">
+                            <QrCode className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="text-left">
+                            <p className="text-xs font-bold text-indigo-700">Guest scans QR</p>
+                            <p className="text-[10px] text-indigo-400">Guest uploads from their own phone</p>
+                          </div>
+                        </button>
+
+                        {/* Camera option */}
+                        <button onClick={() => staffCameraRef.current?.click()}
+                          className="w-full flex items-center gap-3 px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
+                          <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                            <Camera className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="text-left">
+                            <p className="text-xs font-bold text-gray-700">Take photo now</p>
+                            <p className="text-[10px] text-gray-400">Open camera on this device</p>
+                          </div>
+                        </button>
+
+                        {/* File picker option */}
+                        <button onClick={() => staffFileRef.current?.click()}
+                          className="w-full flex items-center gap-3 px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
+                          <div className="w-9 h-9 rounded-full bg-gray-700 flex items-center justify-center shrink-0">
+                            <FolderOpen className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="text-left">
+                            <p className="text-xs font-bold text-gray-700">Upload from files</p>
+                            <p className="text-[10px] text-gray-400">Gallery, downloads or PDF</p>
+                          </div>
                         </button>
                       </div>
                     )}
 
-                    {/* Generating */}
-                    {idQr.status === 'generating' && (
-                      <div className="flex items-center justify-center gap-2 py-2 text-indigo-500">
+                    {/* ── Direct uploading spinner ── */}
+                    {directUploading && (
+                      <div className="flex items-center justify-center gap-2 py-4 text-blue-600">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span className="text-xs">Generating QR code...</span>
+                        <span className="text-xs font-semibold">Uploading ID...</span>
                       </div>
                     )}
 
-                    {/* Ready — show QR */}
-                    {idQr.status === 'ready' && (
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="p-2 border border-indigo-100 rounded-lg bg-white">
-                          <img src={idQr.qrImg} alt="Upload QR" className="w-36 h-36" />
-                        </div>
-                        <p className="text-[10px] text-gray-400 text-center">Guest scans this to upload their ID</p>
-                        <div className="flex items-center gap-1 text-[10px] text-indigo-500 animate-pulse">
-                          <ScanLine className="w-3 h-3" /> Waiting for upload...
-                        </div>
+                    {/* ── QR flow ── */}
+                    {idQr.status !== 'done' && idUploadMode === 'qr' && !directUploading && (
+                      <div>
+                        {idQr.status === 'generating' && (
+                          <div className="flex items-center justify-center gap-2 py-4 text-indigo-500">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-xs">Generating QR...</span>
+                          </div>
+                        )}
+                        {idQr.status === 'ready' && (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="p-2 border border-indigo-100 rounded-lg bg-white">
+                              <img src={idQr.qrImg} alt="Upload QR" className="w-36 h-36" />
+                            </div>
+                            <p className="text-[10px] text-gray-400 text-center">Guest scans this with their phone</p>
+                            <div className="flex items-center gap-1 text-[10px] text-indigo-500 animate-pulse">
+                              <ScanLine className="w-3 h-3" /> Waiting for guest upload...
+                            </div>
+                            <button onClick={() => setIdUploadMode('choose')} className="text-[10px] text-gray-400 hover:text-gray-600 underline mt-1">← Back</button>
+                          </div>
+                        )}
+                        {(idQr.status === 'expired' || idQr.status === 'error') && (
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-orange-400 shrink-0" />
+                            <p className="text-xs text-gray-500 flex-1">{idQr.status === 'expired' ? 'QR expired.' : 'Failed to generate QR.'}</p>
+                            <button onClick={generateIdQr} className="flex items-center gap-1 text-xs font-bold text-indigo-600">
+                              <RefreshCw className="w-3 h-3" /> Retry
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Expired */}
-                    {idQr.status === 'expired' && (
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-orange-400 shrink-0" />
-                        <p className="text-xs text-gray-500 flex-1">QR expired.</p>
-                        <button onClick={generateIdQr} className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800">
-                          <RefreshCw className="w-3 h-3" /> New QR
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Error */}
-                    {idQr.status === 'error' && (
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                        <p className="text-xs text-gray-500 flex-1">Failed to generate QR.</p>
-                        <button onClick={generateIdQr} className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800">
-                          <RefreshCw className="w-3 h-3" /> Retry
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}

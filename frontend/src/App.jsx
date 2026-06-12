@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import NotificationBell from './components/NotificationBell';
 import SupportWidget from './components/SupportWidget';
+import { setToken, clearToken, getToken } from './utils/api';
 import Login from './components/Login';
 import BookingInflow from './components/BookingInflow';
 import BookingCalendar from './components/BookingCalendar';
@@ -138,7 +139,7 @@ function useCheckoutAlert(user) {
     if (snoozedUntil.current && Date.now() < snoozedUntil.current) return;
     try {
       const res = await fetch('http://localhost:5000/api/support/checkout-alerts', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('hotel_auth_token')}` },
+        headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -386,50 +387,39 @@ export default function App() {
   const toggleDark = () => setDarkMode(d => !d);
 
   const handleLogout = async () => {
-    const refreshToken = localStorage.getItem('hotel_refresh_token');
-    if (refreshToken) {
-      try {
-        await fetch('http://localhost:5000/api/auth/logout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-      } catch { /* silent */ }
-    }
-    localStorage.removeItem('hotel_auth_token');
-    localStorage.removeItem('hotel_refresh_token');
-    localStorage.removeItem('hotel_user_data');
+    try {
+      await fetch('http://localhost:5000/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch { /* silent */ }
+    clearToken();
     setUser(null);
     window.location.href = '/login';
   };
 
-  // Restore session on mount
+  // Restore session on mount via silent refresh (HttpOnly cookie sent automatically)
   useEffect(() => {
     const checkAuth = async () => {
-      const token     = localStorage.getItem('hotel_auth_token');
-      const savedUser = localStorage.getItem('hotel_user_data');
-      if (!token || !savedUser) { setIsCheckingAuth(false); return; }
       try {
-        const payload     = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        const expiresInMs = payload.exp * 1000 - Date.now();
-        const tenMin      = 10 * 60 * 1000;
-        if (expiresInMs > tenMin) {
-          setUser(JSON.parse(savedUser));
-        } else {
-          const rt = localStorage.getItem('hotel_refresh_token');
-          if (!rt) { setIsCheckingAuth(false); return; }
-          const res = await fetch('http://localhost:5000/api/auth/refresh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken: rt }),
+        const res = await fetch('http://localhost:5000/api/auth/refresh', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setToken(data.token);
+          // Decode user info from the access token payload
+          const payload = JSON.parse(atob(data.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+          // Fetch full user profile since payload only has userId + role
+          const profileRes = await fetch('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${data.token}` },
           });
-          if (res.ok) {
-            const data = await res.json();
-            localStorage.setItem('hotel_auth_token', data.token);
-            setUser(JSON.parse(savedUser));
+          if (profileRes.ok) {
+            setUser(await profileRes.json());
           }
         }
-      } catch { /* token malformed — clear silently */ }
+      } catch { /* silent — no session */ }
       setIsCheckingAuth(false);
     };
     checkAuth();
@@ -440,7 +430,7 @@ export default function App() {
     if (!user) return;
     const check = async () => {
       try {
-        const token = localStorage.getItem('hotel_auth_token');
+        const token = getToken();
         if (!token) return;
         const res = await fetch('http://localhost:5000/api/auth/status', {
           headers: { Authorization: `Bearer ${token}` },
@@ -448,9 +438,7 @@ export default function App() {
         if (res.status === 403) {
           const data = await res.json().catch(() => ({}));
           if (data.suspended) {
-            localStorage.removeItem('hotel_auth_token');
-            localStorage.removeItem('hotel_refresh_token');
-            localStorage.removeItem('hotel_user_data');
+            clearToken();
             setUser(null);
             setSuspendedInfo({ reason: data.reason });
           }

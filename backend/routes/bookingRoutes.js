@@ -1,11 +1,24 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const Property = require('../models/Property');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { uploadToR2, isConfigured } = require('../utils/r2');
+
+const idUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ok = /jpeg|jpg|png|webp|pdf/.test(ext) && /image\/|application\/pdf/.test(file.mimetype);
+    cb(ok ? null : new Error('Only images (JPEG/PNG/WebP) or PDF allowed.'), ok);
+  }
+});
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -38,7 +51,7 @@ router.post('/create', verifyToken, [
   try {
     const {
       guestName, guestPhone, guestCount, bookingType, checkIn, checkOut, reqType,
-      totalAmount, advancePaid, paymentMethod, propertyId
+      totalAmount, advancePaid, paymentMethod, propertyId, idProofUrl
     } = req.body;
 
     console.log(`🛎️ New Reservation for ${guestName} (${guestCount || 1} Guests) at Property ${propertyId}`);
@@ -60,7 +73,7 @@ router.post('/create', verifyToken, [
       guestName,
       guestPhone,
       guestCount: Number(guestCount) || 1, // Save the number of guests
-      documentUrl: 'pending_upload', 
+      documentUrl: (idProofUrl && idProofUrl.startsWith('http')) ? idProofUrl : 'pending_upload',
       bookingType,
       checkIn: new Date(checkIn),
       checkOut: new Date(checkOut),
@@ -381,6 +394,27 @@ router.get('/guest/:phone', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Guest CRM Fetch Error:', error);
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// STAFF DIRECT ID UPLOAD (no QR needed)
+// ==========================================
+// POST /api/bookings/:id/upload-id  (multipart, field: idPhoto)
+router.post('/:id/upload-id', verifyToken, idUpload.single('idPhoto'), async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+    if (!req.file)  return res.status(400).json({ message: 'No file provided.' });
+    if (!isConfigured()) return res.status(503).json({ message: 'File storage not configured. Add CF_R2_* keys to .env' });
+
+    const fileUrl = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
+    booking.documentUrl = fileUrl;
+    await booking.save();
+
+    res.json({ message: 'ID uploaded successfully.', fileUrl });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Upload failed.' });
   }
 });
 

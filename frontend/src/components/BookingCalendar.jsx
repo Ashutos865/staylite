@@ -4,6 +4,7 @@ import {
   IndianRupee, Globe, LogIn, LogOut, BedDouble,
   CalendarDays, Building
 } from 'lucide-react';
+import { getToken } from '../utils/api';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -105,7 +106,7 @@ export default function BookingCalendar({ user }) {
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem('hotel_auth_token');
+        const token = getToken();
         let propId = activePropertyId;
 
         if ((user?.role === 'SUPER_ADMIN' || user?.role === 'PROPERTY_OWNER') && properties.length === 0) {

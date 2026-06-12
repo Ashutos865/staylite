@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Search, Plus, X, AlertCircle, Building, Loader2, IndianRupee, AlertTriangle,
-  Users, Sparkles, CheckCircle2, Globe, QrCode, RefreshCw, ScanLine, Clock, CalendarDays
+  Users, Sparkles, CheckCircle2, Globe, QrCode, RefreshCw, ScanLine, Clock, CalendarDays,
+  Camera, FolderOpen
 } from 'lucide-react';
 
 import { API, authHeader as auth, INPUT_CLS, STATUS_BADGE } from '../utils/api.js';
@@ -25,6 +26,11 @@ export default function BookingInflow({ user }) {
   const [qrModal, setQrModal] = useState({ open: false, status: 'idle', token: '', url: '', fileUrl: '', expiresAt: null });
   const [qrImg, setQrImg]     = useState('');
   const qrPollRef = useRef(null);
+
+  const [idFile, setIdFile]       = useState(null);
+  const [idPreview, setIdPreview] = useState(null);
+  const idCameraRef = useRef(null);
+  const idFileRef   = useRef(null);
 
   const [guestHistory, setGuestHistory] = useState(null);
   const [isSearchingGuest, setIsSearchingGuest] = useState(false);
@@ -151,7 +157,24 @@ export default function BookingInflow({ user }) {
     setQrModal({ open: false, status: 'idle', token: '', url: '', fileUrl: '', expiresAt: null });
   };
 
-  const resetForm = () => setFormData(INITIAL_FORM);
+  const handleIdFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIdFile(file);
+    setIdPreview(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
+  };
+
+  const clearIdFile = () => {
+    setIdFile(null);
+    setIdPreview(null);
+    if (idCameraRef.current) idCameraRef.current.value = '';
+    if (idFileRef.current)   idFileRef.current.value   = '';
+  };
+
+  const resetForm = () => {
+    setFormData(INITIAL_FORM);
+    clearIdFile();
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -163,6 +186,16 @@ export default function BookingInflow({ user }) {
       });
       const data = await res.json();
       if (res.ok) {
+        // If staff selected a file locally, upload it now
+        if (idFile && data.booking?._id) {
+          const fd = new FormData();
+          fd.append('idPhoto', idFile);
+          await fetch(`${API}/bookings/${data.booking._id}/upload-id`, {
+            method: 'POST',
+            headers: auth(),
+            body: fd,
+          }).catch(() => {/* upload failure — check-in will prompt again */});
+        }
         const bkgRes = await fetch(`${API}/bookings/property/${activePropertyId}`, { headers: auth() });
         if (bkgRes.ok) setBookings(await bkgRes.json());
         setIsModalOpen(false); setGuestHistory(null); closeQrModal(); setQrImg(''); resetForm();
@@ -419,17 +452,43 @@ export default function BookingInflow({ user }) {
                   </div>
 
                   <div>
-                    <p className="text-xs text-gray-500 mb-1.5">Guest ID</p>
+                    <p className="text-xs text-gray-500 mb-1.5">Guest ID <span className="text-gray-400 font-normal">(optional — can upload at check-in)</span></p>
+
+                    {/* Hidden file inputs */}
+                    <input ref={idCameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={handleIdFileSelect} />
+                    <input ref={idFileRef}   type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={handleIdFileSelect} />
+
                     {formData.idProofUrl ? (
+                      /* QR upload completed */
                       <div className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 rounded-xl px-3 h-10">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="text-xs font-medium text-emerald-700 flex-1 truncate">ID Uploaded</span>
-                        <button type="button" onClick={generateUploadQR} className="text-[10px] text-gray-400 hover:text-gray-600 underline">Replace</button>
+                        <span className="text-xs font-medium text-emerald-700 flex-1 truncate">ID Uploaded via QR</span>
+                        <button type="button" onClick={() => setFormData(p => ({ ...p, idProofUrl: '' }))} className="text-[10px] text-gray-400 hover:text-gray-600 underline">Replace</button>
+                      </div>
+                    ) : idFile ? (
+                      /* File selected locally — will upload after booking creation */
+                      <div className="flex items-center gap-2 border border-blue-200 bg-blue-50 rounded-xl px-3 h-10">
+                        <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                        {idPreview && <img src={idPreview} alt="preview" className="w-6 h-6 object-cover rounded shrink-0" />}
+                        <span className="text-xs font-medium text-blue-700 flex-1 truncate">{idFile.name}</span>
+                        <button type="button" onClick={clearIdFile} className="text-[10px] text-gray-400 hover:text-gray-600 underline">Remove</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={generateUploadQR} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-blue-200 rounded-xl px-3 h-10 text-sm text-blue-600 font-medium hover:bg-blue-50 transition">
-                        <QrCode className="w-4 h-4" /> Scan QR to Upload ID
-                      </button>
+                      /* Nothing selected — 3 options */
+                      <div className="flex gap-1.5">
+                        <button type="button" onClick={generateUploadQR}
+                          className="flex-1 flex flex-col items-center gap-1 border-2 border-dashed border-blue-200 rounded-xl py-2.5 text-xs text-blue-600 font-medium hover:bg-blue-50 transition">
+                          <QrCode className="w-4 h-4" /><span>QR</span>
+                        </button>
+                        <button type="button" onClick={() => idCameraRef.current?.click()}
+                          className="flex-1 flex flex-col items-center gap-1 border-2 border-dashed border-gray-200 rounded-xl py-2.5 text-xs text-gray-600 font-medium hover:bg-gray-50 transition">
+                          <Camera className="w-4 h-4" /><span>Camera</span>
+                        </button>
+                        <button type="button" onClick={() => idFileRef.current?.click()}
+                          className="flex-1 flex flex-col items-center gap-1 border-2 border-dashed border-gray-200 rounded-xl py-2.5 text-xs text-gray-600 font-medium hover:bg-gray-50 transition">
+                          <FolderOpen className="w-4 h-4" /><span>File</span>
+                        </button>
+                      </div>
                     )}
                   </div>
 

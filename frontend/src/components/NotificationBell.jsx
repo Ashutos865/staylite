@@ -5,8 +5,10 @@ import {
   Megaphone, Wrench, CheckCircle, Zap, Star, MessageSquare, CalendarDays
 } from 'lucide-react';
 
+import { getToken } from '../utils/api';
+
 const API = 'http://localhost:5000/api';
-const tok = () => localStorage.getItem('hotel_auth_token');
+const tok = () => getToken();
 const hdrs = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${tok()}` });
 
 // ── Template definitions ─────────────────────────────────────────────────────
