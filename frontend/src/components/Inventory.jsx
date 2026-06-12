@@ -77,8 +77,8 @@ export default function Inventory({ user }) {
         
         if (user?.role === 'SUPER_ADMIN' || user?.role === 'PROPERTY_OWNER') {
           const endpoint = user?.role === 'SUPER_ADMIN' 
-            ? 'http://localhost:5000/api/properties' 
-            : 'http://localhost:5000/api/properties/my-hotels';
+            ? '/api/properties' 
+            : '/api/properties/my-hotels';
 
           const response = await fetch(endpoint, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -120,8 +120,8 @@ export default function Inventory({ user }) {
         if (!propId) return;
 
         const [roomRes, bkgRes] = await Promise.all([
-          fetch(`http://localhost:5000/api/properties/${propId}/rooms`, { headers: { 'Authorization': `Bearer ${token}` } }),
-          fetch(`http://localhost:5000/api/bookings/property/${propId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+          fetch(`/api/properties/${propId}/rooms`, { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch(`/api/bookings/property/${propId}`, { headers: { 'Authorization': `Bearer ${token}` } })
         ]);
 
         if (roomRes.ok) {
@@ -206,7 +206,7 @@ export default function Inventory({ user }) {
     if (idQrPollRef.current) clearInterval(idQrPollRef.current);
     idQrPollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/public/upload-status/${token}`);
+        const res = await fetch(`/api/public/upload-status/${token}`);
         const data = await res.json();
         if (data.status === 'UPLOADED') {
           clearInterval(idQrPollRef.current);
@@ -222,7 +222,7 @@ export default function Inventory({ user }) {
   const generateIdQr = async () => {
     setIdQr({ status: 'generating', token: '', qrImg: '', fileUrl: '' });
     try {
-      const res = await fetch('http://localhost:5000/api/public/upload-token', { method: 'POST' });
+      const res = await fetch('/api/public/upload-token', { method: 'POST' });
       const data = await res.json();
       const uploadUrl = `${window.location.origin}/upload-id/${data.token}`;
       const QRCode = await import('qrcode');
@@ -247,7 +247,7 @@ export default function Inventory({ user }) {
     try {
       const fd = new FormData();
       fd.append('idPhoto', file);
-      const res = await fetch(`http://localhost:5000/api/bookings/${checkinBooking._id}/upload-id`, {
+      const res = await fetch(`/api/bookings/${checkinBooking._id}/upload-id`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
         body: fd,
@@ -275,7 +275,7 @@ export default function Inventory({ user }) {
 
     try {
       const token = getToken();
-      const response = await fetch(`http://localhost:5000/api/properties/${activePropertyId}/rooms`, {
+      const response = await fetch(`/api/properties/${activePropertyId}/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(roomForm)
@@ -333,7 +333,7 @@ export default function Inventory({ user }) {
 
     try {
       const token = getToken();
-      const response = await fetch(`http://localhost:5000/api/bookings/${activeAssignment._id}/assign`, {
+      const response = await fetch(`/api/bookings/${activeAssignment._id}/assign`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ assignments }) // Pass the array
@@ -362,7 +362,7 @@ export default function Inventory({ user }) {
         ...(idQr.fileUrl ? { documentUrl: idQr.fileUrl } : {})
       };
 
-      const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/status`, {
+      const response = await fetch(`/api/bookings/${bookingId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload)
@@ -402,7 +402,7 @@ export default function Inventory({ user }) {
   const handleCancelBooking = async (bookingId) => {
     try {
       const token = getToken();
-      const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/status`, {
+      const response = await fetch(`/api/bookings/${bookingId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ status: 'CANCELLED' })

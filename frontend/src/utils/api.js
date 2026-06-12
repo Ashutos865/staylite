@@ -1,4 +1,4 @@
-export const API = 'http://localhost:5000/api';
+export const API = '/api';
 
 let _token = null;
 export const setToken  = (t) => { _token = t; };

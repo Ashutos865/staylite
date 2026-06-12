@@ -138,7 +138,7 @@ function useCheckoutAlert(user) {
     if (user?.role !== 'HOTEL_MANAGER') return;
     if (snoozedUntil.current && Date.now() < snoozedUntil.current) return;
     try {
-      const res = await fetch('http://localhost:5000/api/support/checkout-alerts', {
+      const res = await fetch('/api/support/checkout-alerts', {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!res.ok) return;
@@ -388,7 +388,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://localhost:5000/api/auth/logout', {
+      await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
       });
@@ -402,7 +402,7 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/auth/refresh', {
+        const res = await fetch('/api/auth/refresh', {
           method: 'POST',
           credentials: 'include',
         });
@@ -412,7 +412,7 @@ export default function App() {
           // Decode user info from the access token payload
           const payload = JSON.parse(atob(data.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
           // Fetch full user profile since payload only has userId + role
-          const profileRes = await fetch('http://localhost:5000/api/auth/me', {
+          const profileRes = await fetch('/api/auth/me', {
             headers: { Authorization: `Bearer ${data.token}` },
           });
           if (profileRes.ok) {
@@ -432,7 +432,7 @@ export default function App() {
       try {
         const token = getToken();
         if (!token) return;
-        const res = await fetch('http://localhost:5000/api/auth/status', {
+        const res = await fetch('/api/auth/status', {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.status === 403) {
@@ -454,7 +454,7 @@ export default function App() {
     if (!isStaffPath()) return;
     const checkMaintenance = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/maintenance-status');
+        const res = await fetch('/api/maintenance-status');
         if (res.ok) setMaintenance(await res.json());
       } catch { /* silent */ }
     };

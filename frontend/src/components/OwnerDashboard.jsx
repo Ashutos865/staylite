@@ -24,7 +24,7 @@ export default function OwnerDashboard({ user }) {
       const token = getToken();
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('photos', f));
-      const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
+      const res = await fetch(`/api/properties/${hotelId}/photos`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: fd
@@ -42,7 +42,7 @@ export default function OwnerDashboard({ user }) {
     if (!window.confirm('Remove this photo?')) return;
     try {
       const token = getToken();
-      const res = await fetch(`http://localhost:5000/api/properties/${hotelId}/photos`, {
+      const res = await fetch(`/api/properties/${hotelId}/photos`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ photoUrl })
@@ -64,7 +64,7 @@ export default function OwnerDashboard({ user }) {
   const fetchHotels = async () => {
     try {
       const token = getToken();
-      const response = await fetch('http://localhost:5000/api/properties/my-hotels', {
+      const response = await fetch('/api/properties/my-hotels', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -89,7 +89,7 @@ export default function OwnerDashboard({ user }) {
 
     try {
       const token = getToken();
-      const response = await fetch('http://localhost:5000/api/properties/create', {
+      const response = await fetch('/api/properties/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(hotelForm)
@@ -130,7 +130,7 @@ export default function OwnerDashboard({ user }) {
 
     try {
       const token = getToken();
-      const response = await fetch(`http://localhost:5000/api/properties/${editForm.id}`, {
+      const response = await fetch(`/api/properties/${editForm.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(editForm)

@@ -10,8 +10,8 @@ import {
 
 import { getToken } from '../utils/api';
 
-const API        = 'http://localhost:5000/api/developer';
-const SUPPORT_API = 'http://localhost:5000/api/support';
+const API        = '/api/developer';
+const SUPPORT_API = '/api/support';
 const token = () => getToken();
 const fmt = (n) => new Intl.NumberFormat().format(n);
 const fmtBytes = (b) => {

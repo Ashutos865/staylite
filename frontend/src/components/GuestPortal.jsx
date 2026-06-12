@@ -6,7 +6,7 @@ import {
   BedDouble, AlertCircle
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api/public';
+const API = '/api/public';
 
 const HOTEL_IMAGES = [
   'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&q=80',

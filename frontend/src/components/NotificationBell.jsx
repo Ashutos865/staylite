@@ -7,7 +7,7 @@ import {
 
 import { getToken } from '../utils/api';
 
-const API = 'http://localhost:5000/api';
+const API = '/api';
 const tok = () => getToken();
 const hdrs = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${tok()}` });
 

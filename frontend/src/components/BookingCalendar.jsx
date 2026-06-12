@@ -111,8 +111,8 @@ export default function BookingCalendar({ user }) {
 
         if ((user?.role === 'SUPER_ADMIN' || user?.role === 'PROPERTY_OWNER') && properties.length === 0) {
           const endpoint = user.role === 'SUPER_ADMIN'
-            ? 'http://localhost:5000/api/properties'
-            : 'http://localhost:5000/api/properties/my-hotels';
+            ? '/api/properties'
+            : '/api/properties/my-hotels';
           const pr = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
           if (pr.ok) {
             const pd = await pr.json();
@@ -128,8 +128,8 @@ export default function BookingCalendar({ user }) {
         }
 
         const url = propId === 'ALL'
-          ? 'http://localhost:5000/api/bookings/all'
-          : propId ? `http://localhost:5000/api/bookings/property/${propId}` : null;
+          ? '/api/bookings/all'
+          : propId ? `/api/bookings/property/${propId}` : null;
 
         if (url) {
           const br = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });

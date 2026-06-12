@@ -24,7 +24,7 @@ export default function IDUploadPage() {
       const fd = new FormData();
       fd.append('idPhoto', file);
 
-      const res = await fetch(`http://localhost:5000/api/public/upload-id/${token}`, {
+      const res = await fetch(`/api/public/upload-id/${token}`, {
         method: 'POST',
         body: fd
       });
