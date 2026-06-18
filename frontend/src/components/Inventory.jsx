@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck, Camera, FolderOpen } from 'lucide-react';
+import { Plus, DoorOpen, DoorClosed, AlertCircle, X, MapPin, Building, Loader2, User, Users, Filter, CalendarDays, Search, CheckCircle, LogOut, Clock, IndianRupee, AlertTriangle, CreditCard, Trash2, Globe, QrCode, RefreshCw, ExternalLink, ScanLine, ShieldCheck, Camera, FolderOpen, Pencil } from 'lucide-react';
 import { API, authHeader, authHeaders, getToken } from '../utils/api.js';
 
 // Reusable confirmation dialog
@@ -68,6 +68,11 @@ export default function Inventory({ user }) {
     capacity: 2,
     basePrice: 1500
   });
+
+  // --- EDIT ROOM (price / capacity / category) ---
+  const [editingRoom, setEditingRoom] = useState(null);
+  const [editRoomForm, setEditRoomForm] = useState({ basePrice: '', capacity: '', category: '' });
+  const [editStatus, setEditStatus] = useState({ type: '', message: '' });
 
   // --- 1. FETCH PROPERTIES ON LOAD ---
   useEffect(() => {
@@ -161,6 +166,9 @@ export default function Inventory({ user }) {
     if (categoryFilter === 'NON_AC' && room.category.includes('NON_AC')) return true;
     return false;
   });
+
+  // Owners, their assigned managers, and admins may edit room pricing
+  const canManageRooms = ['PROPERTY_OWNER', 'HOTEL_MANAGER', 'SUPER_ADMIN'].includes(user?.role);
 
   const getPropertyName = (propId) => {
     const prop = properties.find(p => p._id === propId);
@@ -293,6 +301,40 @@ export default function Inventory({ user }) {
       }
     } catch (error) {
       setStatus({ type: 'error', message: 'Failed to connect to server.' });
+    }
+  };
+
+  const openEditRoom = (room) => {
+    setEditingRoom(room);
+    setEditRoomForm({ basePrice: room.basePrice, capacity: room.capacity, category: room.category });
+    setEditStatus({ type: '', message: '' });
+  };
+
+  const handleEditRoom = async (e) => {
+    e.preventDefault();
+    setEditStatus({ type: 'loading', message: 'Saving changes…' });
+    try {
+      const token = getToken();
+      const propId = editingRoom.property?._id || editingRoom.property;
+      const response = await fetch(`/api/properties/${propId}/rooms/${editingRoom._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          basePrice: Number(editRoomForm.basePrice),
+          capacity: Number(editRoomForm.capacity),
+          category: editRoomForm.category,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setEditStatus({ type: 'success', message: data.message || 'Room updated!' });
+        fetchInventoryData();
+        setTimeout(() => setEditingRoom(null), 1200);
+      } else {
+        setEditStatus({ type: 'error', message: data.message || 'Update failed.' });
+      }
+    } catch {
+      setEditStatus({ type: 'error', message: 'Failed to connect to server.' });
     }
   };
 
@@ -471,14 +513,15 @@ export default function Inventory({ user }) {
                 <tr className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
                   <th className="px-6 py-3.5">Room</th>
                   <th className="px-6 py-3.5">Category</th>
+                  <th className="px-6 py-3.5">Price / Night</th>
                   <th className="px-6 py-3.5">Status / Occupant</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {isLoading ? (
-                  <tr><td colSpan="3" className="py-16 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> Syncing…</td></tr>
+                  <tr><td colSpan="4" className="py-16 text-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> Syncing…</td></tr>
                 ) : filteredRooms.length === 0 ? (
-                  <tr><td colSpan="3" className="py-16 text-center text-gray-400">No rooms found.</td></tr>
+                  <tr><td colSpan="4" className="py-16 text-center text-gray-400">No rooms found.</td></tr>
                 ) : filteredRooms.map(room => {
                   const occupant = activeBookings.find(b =>
                     b.assignedRooms?.some(ar => (ar.room?._id || ar.room) === room._id)
@@ -498,6 +541,22 @@ export default function Inventory({ user }) {
                           {room.category.replace(/_/g, ' ')}
                         </span>
                         <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><Users className="w-3 h-3" /> Max {room.capacity}</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-900 flex items-center">
+                            <IndianRupee className="w-3.5 h-3.5" />{room.basePrice}
+                          </span>
+                          {canManageRooms && (
+                            <button
+                              onClick={() => openEditRoom(room)}
+                              title="Edit price / room details"
+                              className="p-1 rounded-lg text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         {room.currentStatus === 'AVAILABLE' && !occupant ? (
@@ -736,6 +795,68 @@ export default function Inventory({ user }) {
                 <button type="submit" disabled={status.type === 'loading'} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-bold shadow-sm transition-colors flex justify-center items-center">
                   {status.type === 'loading' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <DoorOpen className="w-4 h-4 mr-2" />}
                   Save Room to Inventory
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL 1b: EDIT ROOM (PRICE / DETAILS)      */}
+      {/* ========================================== */}
+      {editingRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 sm:p-5 border-b border-gray-100 bg-gray-50 shrink-0">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center">
+                <Pencil className="w-5 h-5 mr-2 text-blue-600" /> Edit Room {editingRoom.roomNumber}
+              </h2>
+              <button onClick={() => setEditingRoom(null)} className="p-1"><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+            </div>
+
+            <form onSubmit={handleEditRoom} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+              {editStatus.message && (
+                <div className={`p-3 rounded-lg text-xs font-bold ${editStatus.type === 'success' ? 'bg-green-50 text-green-700' : editStatus.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                  {editStatus.message}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Base Price (₹ / night)</label>
+                <div className="relative">
+                  <IndianRupee className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="number" min="0" required value={editRoomForm.basePrice}
+                    onChange={(e) => setEditRoomForm({ ...editRoomForm, basePrice: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">New price applies to future bookings. Existing bookings keep their original amount.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Capacity</label>
+                  <input type="number" min="1" max="20" required value={editRoomForm.capacity}
+                    onChange={(e) => setEditRoomForm({ ...editRoomForm, capacity: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
+                  <select value={editRoomForm.category}
+                    onChange={(e) => setEditRoomForm({ ...editRoomForm, category: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="STANDARD_NON_AC">Standard Non-AC</option>
+                    <option value="DELUXE_AC">Deluxe AC</option>
+                    <option value="PREMIUM_SUITE">Premium Suite</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100">
+                <button type="submit" disabled={editStatus.type === 'loading'}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-bold shadow-sm transition-colors flex justify-center items-center">
+                  {editStatus.type === 'loading' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Save Changes
                 </button>
               </div>
             </form>

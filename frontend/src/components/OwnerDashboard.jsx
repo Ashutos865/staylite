@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Building2, MapPin, Phone, Plus, User, Mail, Lock, Edit, X, Save, Loader2, ImagePlus, Trash2, Images } from 'lucide-react';
+import { Building2, MapPin, Phone, Plus, User, Mail, Lock, Edit, X, Save, Loader2, ImagePlus, Trash2, Images, PauseCircle, PlayCircle, AlertTriangle } from 'lucide-react';
 import { getToken } from '../utils/api';
 
 export default function OwnerDashboard({ user }) {
@@ -152,6 +152,28 @@ export default function OwnerDashboard({ user }) {
     }
   };
 
+  // --- TOGGLE HOTEL STATUS (ACTIVE ↔ INACTIVE) ---
+  const [togglingId, setTogglingId] = useState(null);
+  const handleToggleStatus = async (hotel) => {
+    if (hotel.status === 'SUSPENDED') return; // suspended hotels are locked
+    const next = hotel.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const label = next === 'INACTIVE' ? 'deactivate' : 'reactivate';
+    if (!window.confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} "${hotel.name}"?`)) return;
+    setTogglingId(hotel._id);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/properties/${hotel._id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: next })
+      });
+      const data = await res.json();
+      if (res.ok) fetchHotels();
+      else alert(data.message || 'Failed to update status.');
+    } catch { alert('Failed to connect to server.'); }
+    finally { setTogglingId(null); }
+  };
+
   const isLimitReached = hotels.length >= user?.maxHotelsAllowed;
 
   return (
@@ -267,11 +289,51 @@ export default function OwnerDashboard({ user }) {
                   </button>
 
                   <div className="flex items-center space-x-3 mb-4">
-                    <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><Building2 className="w-5 h-5" /></div>
-                    <h3 className="font-bold text-lg text-gray-900">{hotel.name}</h3>
+                    <div className={`p-2 rounded-lg ${hotel.status === 'ACTIVE' ? 'bg-blue-50 text-blue-600' : hotel.status === 'INACTIVE' ? 'bg-gray-100 text-gray-400' : 'bg-red-50 text-red-400'}`}>
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <h3 className={`font-bold text-lg ${hotel.status === 'ACTIVE' ? 'text-gray-900' : 'text-gray-400'}`}>{hotel.name}</h3>
                   </div>
-                  
-                  <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase inline-block mb-4">Active</span>
+
+                  <div className="flex items-center gap-2 mb-4">
+                    {hotel.status === 'ACTIVE' && (
+                      <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase inline-flex items-center gap-1">
+                        <PlayCircle className="w-3 h-3" /> Active
+                      </span>
+                    )}
+                    {hotel.status === 'INACTIVE' && (
+                      <span className="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase inline-flex items-center gap-1">
+                        <PauseCircle className="w-3 h-3" /> Inactive
+                      </span>
+                    )}
+                    {hotel.status === 'SUSPENDED' && (
+                      <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase inline-flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Suspended
+                      </span>
+                    )}
+
+                    {hotel.status !== 'SUSPENDED' && (
+                      <button
+                        onClick={() => handleToggleStatus(hotel)}
+                        disabled={togglingId === hotel._id}
+                        className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border transition ${
+                          hotel.status === 'ACTIVE'
+                            ? 'border-orange-200 text-orange-600 hover:bg-orange-50'
+                            : 'border-green-200 text-green-600 hover:bg-green-50'
+                        } disabled:opacity-50`}
+                      >
+                        {togglingId === hotel._id
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : hotel.status === 'ACTIVE'
+                            ? <><PauseCircle className="w-3 h-3" /> Deactivate</>
+                            : <><PlayCircle className="w-3 h-3" /> Activate</>
+                        }
+                      </button>
+                    )}
+                    {hotel.status === 'SUSPENDED' && (
+                      <span className="text-[10px] text-red-400">Contact platform support to restore.</span>
+                    )}
+                  </div>
                   
                   <div className="space-y-3">
                     <div className="flex items-start text-xs text-gray-500">

@@ -5,7 +5,8 @@ import {
   RefreshCw, Filter, Trash2, ChevronDown, ChevronRight, Zap,
   BarChart3, TrendingUp, Wifi, Shield, Terminal, Search, Unlock, X,
   Users, Building2, PauseCircle, PlayCircle, UserX, KeyRound, LogOut,
-  AlertOctagon, Wrench, HelpCircle, Send, MessageSquare
+  AlertOctagon, Wrench, HelpCircle, Send, MessageSquare,
+  Edit2, Eye, EyeOff, Package, RotateCcw, FolderOpen, Image, Trash
 } from 'lucide-react';
 
 import { getToken } from '../utils/api';
@@ -84,74 +85,12 @@ const ROLE_LABEL = {
   DEVELOPER:      'Developer',
 };
 
+// Logs now store a plain-English message — just return it.
+// For old server-error logs that only have route/method, build a fallback.
 function describeLog(log) {
-  const m = log.method || '';
-  const r = log.route  || '';
-
-  // Auth
-  if (r.includes('/auth/login'))   return 'Logged in';
-  if (r.includes('/auth/logout'))  return 'Logged out';
-  if (r.includes('/auth/refresh')) return 'Session refreshed';
-  if (r.includes('/auth/me') || r.includes('/auth/status')) return 'Checked session';
-
-  // Bookings
-  if (m === 'POST'  && /\/bookings$/.test(r))              return 'Created new booking';
-  if (m === 'PATCH' && r.includes('/assign-rooms'))        return 'Assigned rooms to booking';
-  if (m === 'PATCH' && r.includes('/status'))              return 'Updated booking status';
-  if (r.includes('/bookings/all'))                         return 'Viewed all bookings';
-  if (r.includes('/my-guests'))                            return 'Looked up guest history';
-  if (m === 'GET'   && /\/bookings/.test(r))               return 'Viewed bookings';
-
-  // Properties / rooms / photos
-  if (m === 'POST'   && /\/properties$/.test(r))           return 'Created new hotel';
-  if (m === 'GET'    && r.includes('/my-hotels'))          return 'Viewed own hotels';
-  if (m === 'PATCH'  && /\/properties\/[^/]+$/.test(r))   return 'Updated hotel details';
-  if (m === 'POST'   && r.includes('/rooms'))              return 'Added new room';
-  if (m === 'PATCH'  && r.includes('/rooms'))              return 'Updated room details';
-  if (m === 'POST'   && r.includes('/photos'))             return 'Uploaded hotel photo';
-  if (m === 'DELETE' && r.includes('/photos'))             return 'Deleted hotel photo';
-
-  // Admin
-  if (r.includes('/create-owner'))     return 'Created property owner account';
-  if (r.includes('/create-developer')) return 'Created developer account';
-  if (m === 'PATCH' && r.includes('/owners') && r.includes('/suspend'))    return 'Changed owner suspension';
-  if (m === 'PATCH' && r.includes('/owners'))    return 'Edited owner account';
-  if (m === 'DELETE' && r.includes('/owners'))   return 'Deleted owner account';
-  if (m === 'GET'   && r.includes('/owners'))    return 'Viewed owner list';
-  if (m === 'GET'   && r.includes('/developers')) return 'Viewed developer list';
-
-  // Notifications
-  if (m === 'POST' && r.includes('/notifications/send'))  return 'Sent notification';
-  if (m === 'GET'  && r.includes('/notifications/inbox')) return 'Checked notifications';
-  if (r.includes('/notifications') && r.includes('/read')) return 'Marked notification read';
-
-  // Support
-  if (m === 'POST'  && /\/tickets$/.test(r))              return 'Raised support ticket';
-  if (m === 'POST'  && r.includes('/reply'))              return 'Replied to support ticket';
-  if (m === 'PATCH' && r.includes('/tickets'))            return 'Updated support ticket';
-  if (m === 'GET'   && r.includes('/tickets'))            return 'Viewed support tickets';
-
-  // Developer console
-  if (r.includes('/developer/logs'))       return 'Viewed system logs';
-  if (r.includes('/developer/errors'))     return 'Checked errors';
-  if (r.includes('/developer/stats'))      return 'Checked system stats';
-  if (r.includes('/developer/users'))      return 'Managed users';
-  if (r.includes('/developer/hotels'))     return 'Managed hotels';
-  if (r.includes('/developer/cleanup'))    return 'Ran cleanup';
-  if (r.includes('/developer/maintenance')) return 'Updated maintenance mode';
-
-  // Public / guest portal
-  if (r.includes('/public/hotels') && m === 'GET') return 'Guest browsed hotels';
-  if (r.includes('/public/availability'))          return 'Guest checked availability';
-  if (r.includes('/public/book'))                  return 'Guest made a booking';
-  if (r.includes('/public/payment'))               return 'Guest payment action';
-  if (r.includes('/public/track'))                 return 'Guest tracked booking';
-  if (r.includes('/public/upload-token'))          return 'Generated ID upload link';
-  if (r.includes('/public/upload-id'))             return 'Guest uploaded ID document';
-
-  // Fallback: strip /api/ prefix and prettify
-  const clean = r.replace(/^\/api\//, '').split('/').slice(0, 2).join('/');
-  return `${m} /${clean}`;
+  if (log.message) return log.message;
+  if (log.route)   return `${log.method || 'GET'} ${log.route}`;
+  return 'System event';
 }
 
 // ─── Stat Card ─────────────────────────────────────────────────────────────
@@ -166,24 +105,6 @@ const StatCard = ({ icon: Icon, label, value, sub, color = 'blue', danger }) => 
     <div className={`text-2xl font-black ${danger ? 'text-red-600' : 'text-gray-900'}`}>{value ?? '—'}</div>
     {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
   </div>
-);
-
-// ─── Tab button ────────────────────────────────────────────────────────────
-const Tab = ({ active, onClick, icon: Icon, label, badge }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap ${
-      active ? 'border-violet-600 text-violet-700 bg-violet-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-    }`}
-  >
-    <Icon className="w-3.5 h-3.5" />
-    {label}
-    {badge != null && (
-      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${badge > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
-        {badge}
-      </span>
-    )}
-  </button>
 );
 
 // ─── Refresh control ───────────────────────────────────────────────────────
@@ -202,8 +123,12 @@ const RefreshBar = ({ onRefresh, loading, lastRefreshed }) => (
 );
 
 // ══════════════════════════════════════════════════════════════════════════════
-export default function DeveloperDashboard() {
-  const [tab, setTab] = useState('OVERVIEW');
+export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } = {}) {
+  // Section is driven by the main app sidebar (lifted to StaffPortal). Falls back
+  // to internal state if rendered standalone.
+  const [tabState, setTabState] = useState('OVERVIEW');
+  const tab = tabProp ?? tabState;
+  const setTab = setTabProp ?? setTabState;
   const [loading, setLoading] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(null);
 
@@ -251,6 +176,35 @@ export default function DeveloperDashboard() {
   // Rate limit reset state
   const [resetIpInput, setResetIpInput] = useState('');
   const [resetStatus, setResetStatus] = useState(null); // { type: 'success'|'error', msg }
+
+  // Edit user state
+  const [editingUser, setEditingUser] = useState(null); // { _id, name, email, role }
+  const [editUserForm, setEditUserForm] = useState({ name: '', email: '', role: '' });
+  const [editUserSaving, setEditUserSaving] = useState(false);
+  const [editUserStatus, setEditUserStatus] = useState(null);
+
+  // DB browser state
+  const [dbBrowseCol, setDbBrowseCol] = useState('users');
+  const [dbBrowseDocs, setDbBrowseDocs] = useState([]);
+  const [dbBrowseTotal, setDbBrowseTotal] = useState(0);
+  const [dbBrowseOffset, setDbBrowseOffset] = useState(0);
+  const [dbBrowseSearch, setDbBrowseSearch] = useState('');
+  const [dbBrowseLoading, setDbBrowseLoading] = useState(false);
+  const [dbBrowseExpanded, setDbBrowseExpanded] = useState(null);
+
+  // Env vars state
+  const [envVars, setEnvVars] = useState(null);
+  const [envRevealAll, setEnvRevealAll] = useState(false);
+
+  // R2 file browser state
+  const [r2Files, setR2Files] = useState([]);
+  const [r2FilesLoading, setR2FilesLoading] = useState(false);
+  const [r2NextToken, setR2NextToken] = useState(null);
+  const [r2FilesLoaded, setR2FilesLoaded] = useState(false);
+
+  // Server restart state
+  const [restartLoading, setRestartLoading] = useState(false);
+  const [restartStatus, setRestartStatus] = useState(null);
 
   // ── fetchers ───────────────────────────────────────────────────────────────
   const fetchOverview = useCallback(async () => {
@@ -429,6 +383,44 @@ export default function DeveloperDashboard() {
     if (rlRes.ok) setRateLimits(await rlRes.json());
   }, []);
 
+  const fetchDbBrowse = useCallback(async (col, offset, search) => {
+    const c = col ?? dbBrowseCol;
+    const o = offset ?? dbBrowseOffset;
+    const s = search !== undefined ? search : dbBrowseSearch;
+    setDbBrowseLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: 20, offset: o });
+      if (s) params.set('search', s);
+      const res = await fetch(`${API}/db/browse/${c}?${params}`, { headers: { Authorization: `Bearer ${token()}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setDbBrowseDocs(data.documents);
+        setDbBrowseTotal(data.total);
+        setDbBrowseOffset(o);
+      }
+    } finally { setDbBrowseLoading(false); }
+  }, [dbBrowseCol, dbBrowseOffset, dbBrowseSearch]);
+
+  const fetchEnv = useCallback(async () => {
+    const res = await fetch(`${API}/env`, { headers: { Authorization: `Bearer ${token()}` } });
+    if (res.ok) setEnvVars(await res.json());
+  }, []);
+
+  const fetchR2Files = useCallback(async (token2) => {
+    setR2FilesLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: 100 });
+      if (token2) params.set('token', token2);
+      const res = await fetch(`${API}/storage/files?${params}`, { headers: { Authorization: `Bearer ${token()}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setR2Files(prev => token2 ? [...prev, ...(data.files || [])] : (data.files || []));
+        setR2NextToken(data.nextToken || null);
+        setR2FilesLoaded(true);
+      }
+    } finally { setR2FilesLoading(false); }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -441,11 +433,13 @@ export default function DeveloperDashboard() {
       else if (tab === 'USERS') await fetchUsers();
       else if (tab === 'CLEANUP') await fetchCleanup();
       else if (tab === 'SUPPORT') await fetchTickets();
+      else if (tab === 'DB_BROWSE') await fetchDbBrowse();
+      else if (tab === 'ENV') await fetchEnv();
       setLastRefreshed(new Date());
     } finally {
       setLoading(false);
     }
-  }, [tab, fetchOverview, fetchLogs, fetchErrors, fetchDB, fetchSystem, fetchHotels, fetchUsers, fetchCleanup, fetchTickets, fetchMaintenance]);
+  }, [tab, fetchOverview, fetchLogs, fetchErrors, fetchDB, fetchSystem, fetchHotels, fetchUsers, fetchCleanup, fetchTickets, fetchMaintenance, fetchDbBrowse, fetchEnv]);
 
   useEffect(() => { refresh(); }, [tab]);
 
@@ -512,16 +506,24 @@ export default function DeveloperDashboard() {
     }});
   };
 
+  const safeJson = async (res) => {
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error(`Server error (${res.status}). Is the backend running?`);
+    }
+    return res.json();
+  };
+
   const devPatch = async (url, body) => {
     const res = await fetch(`${API}${url}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: JSON.stringify(body) });
-    const d = await res.json();
+    const d = await safeJson(res);
     if (!res.ok) throw new Error(d.message);
     return d.message;
   };
 
   const devDelete = async (url) => {
     const res = await fetch(`${API}${url}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-    const d = await res.json();
+    const d = await safeJson(res);
     if (!res.ok) throw new Error(d.message);
     return d.message;
   };
@@ -529,37 +531,40 @@ export default function DeveloperDashboard() {
   const errorCount = errors.errors?.length ?? 0;
   const warnCount = errors.warnings?.length ?? 0;
 
-  // ── render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="p-4 sm:p-6 space-y-4 min-h-screen bg-gray-50/50">
+  // ── nav metadata ───────────────────────────────────────────────────────────
+  const NAV = [
+    { group: 'Monitor',         t: 'OVERVIEW',  Icon: BarChart3,     label: 'Overview'         },
+    { group: 'Monitor',         t: 'LOGS',       Icon: Activity,      label: 'Logs',      badge: logsTotal },
+    { group: 'Monitor',         t: 'ERRORS',     Icon: AlertTriangle, label: 'Errors',    badge: errorCount + warnCount },
+    { group: 'Infrastructure',  t: 'SYSTEM',     Icon: Server,        label: 'System'           },
+    { group: 'Infrastructure',  t: 'DATABASE',   Icon: Database,      label: 'Database'         },
+    { group: 'Infrastructure',  t: 'ENV',        Icon: Package,       label: 'Env Vars'         },
+    { group: 'Data',            t: 'DB_BROWSE',  Icon: FolderOpen,    label: 'DB Browse'        },
+    { group: 'Management',      t: 'USERS',      Icon: Users,         label: 'Users'            },
+    { group: 'Management',      t: 'ACCESS',     Icon: Building2,     label: 'Hotels'           },
+    { group: 'Operations',      t: 'CLEANUP',    Icon: Wrench,        label: 'Cleanup'          },
+    { group: 'Operations',      t: 'SUPPORT',    Icon: HelpCircle,    label: 'Support',   badge: tickets.filter(x => x.status === 'OPEN' || x.status === 'IN_PROGRESS').length },
+  ];
+  const current = NAV.find(n => n.t === tab) || NAV[0];
+  const CurrentIcon = current.Icon;
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-black text-gray-900 flex items-center gap-2">
-            <Terminal className="w-5 h-5 text-violet-600" />
-            Developer Console
-          </h1>
-          <p className="text-xs text-gray-400 mt-0.5">Live observability · all logs · system health</p>
+  // ── render ───────────────────────────────────────────────────────────────────
+  // Navigation lives in the main app sidebar (App.jsx) — this just renders a slim
+  // section header + the content, so there is only ONE sidebar in the whole app.
+  return (
+    <div className="min-h-screen bg-gray-50/50">
+
+      {/* Slim section header */}
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 h-12 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-2 min-w-0">
+          <CurrentIcon className="w-4 h-4 text-violet-600 shrink-0" />
+          <span className="text-sm font-black text-gray-900 truncate">{current.label}</span>
+          <span className="hidden sm:inline text-xs text-gray-400 ml-1 shrink-0">· {current.group}</span>
         </div>
         <RefreshBar onRefresh={refresh} loading={loading} lastRefreshed={lastRefreshed} />
-      </div>
+      </header>
 
-      {/* Tab bar */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="flex overflow-x-auto border-b border-gray-100">
-          <Tab active={tab === 'OVERVIEW'} onClick={() => setTab('OVERVIEW')} icon={BarChart3} label="Overview" />
-          <Tab active={tab === 'LOGS'} onClick={() => setTab('LOGS')} icon={Activity} label="Logs" badge={logsTotal} />
-          <Tab active={tab === 'ERRORS'} onClick={() => setTab('ERRORS')} icon={AlertTriangle} label="Errors" badge={errorCount + warnCount} />
-          <Tab active={tab === 'DATABASE'} onClick={() => setTab('DATABASE')} icon={Database} label="Database" />
-          <Tab active={tab === 'SYSTEM'} onClick={() => setTab('SYSTEM')} icon={Server} label="System" />
-          <Tab active={tab === 'ACCESS'} onClick={() => setTab('ACCESS')} icon={Building2} label="Hotels" />
-          <Tab active={tab === 'USERS'} onClick={() => setTab('USERS')} icon={Users} label="Users" />
-          <Tab active={tab === 'CLEANUP'} onClick={() => setTab('CLEANUP')} icon={Wrench} label="Cleanup" />
-          <Tab active={tab === 'SUPPORT'} onClick={() => setTab('SUPPORT')} icon={HelpCircle} label="Support" badge={tickets.filter(t => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length || null} />
-        </div>
-
-        <div className="p-4 sm:p-6">
+      <div className="p-4 sm:p-6 space-y-4">
 
           {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
           {tab === 'OVERVIEW' && overview && (
@@ -603,8 +608,8 @@ export default function DeveloperDashboard() {
                       <Monitor className="w-3.5 h-3.5" /> Devices
                     </h3>
                     <div className="flex flex-wrap gap-2">
-                      {(overview.api.byDevice || []).map((d, i) => (
-                        <div key={i} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs">
+                      {(overview.api.byDevice || []).map((d, _i) => (
+                        <div key={_i} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs">
                           <DeviceIcon device={d._id} />
                           <span className="font-medium text-gray-700">{d._id || 'Unknown'}</span>
                           <span className="font-black text-gray-900">{fmt(d.count)}</span>
@@ -683,20 +688,10 @@ export default function DeveloperDashboard() {
                   <Filter className="w-3 h-3 text-gray-400" />
                   <select value={logFilter.type} onChange={e => applyLogFilter({ type: e.target.value })}
                     className="bg-transparent text-xs font-medium text-gray-700 outline-none">
-                    <option value="ALL">All Activity</option>
-                    <option value="REQUEST">Requests</option>
-                    <option value="ERROR">Errors</option>
-                    <option value="WARNING">Warnings</option>
+                    <option value="ALL">All Events</option>
                     <option value="INFO">Info</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1.5">
-                  <select value={logFilter.statusCode} onChange={e => applyLogFilter({ statusCode: e.target.value })}
-                    className="bg-transparent text-xs font-medium text-gray-700 outline-none">
-                    <option value="">All Statuses</option>
-                    <option value="2xx">Success</option>
-                    <option value="4xx">Client Errors</option>
-                    <option value="5xx">Server Errors</option>
+                    <option value="WARNING">Warnings</option>
+                    <option value="ERROR">Errors</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-1 min-w-40">
@@ -704,7 +699,7 @@ export default function DeveloperDashboard() {
                   <input
                     value={logFilter.route}
                     onChange={e => applyLogFilter({ route: e.target.value })}
-                    placeholder="Search activity..."
+                    placeholder="Search events…"
                     className="bg-transparent text-xs outline-none flex-1 text-gray-700"
                   />
                 </div>
@@ -731,6 +726,12 @@ export default function DeveloperDashboard() {
                   const dotColor  = isError ? 'bg-red-500' : isWarning ? 'bg-yellow-400' : isSuccess ? 'bg-green-500' : 'bg-gray-300';
                   const role      = ROLE_LABEL[log.userRole] || null;
 
+                  const typeBadge = isError
+                    ? 'bg-red-100 text-red-700'
+                    : isWarning
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-green-100 text-green-700';
+
                   return (
                     <div key={log._id}>
                       <button
@@ -740,31 +741,16 @@ export default function DeveloperDashboard() {
                         {/* Status dot */}
                         <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
 
-                        {/* Action + role */}
+                        {/* Message */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold text-gray-800">{describeLog(log)}</span>
-                            {role && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                                log.userRole === 'HOTEL_MANAGER'  ? 'bg-blue-100 text-blue-700' :
-                                log.userRole === 'PROPERTY_OWNER' ? 'bg-indigo-100 text-indigo-700' :
-                                log.userRole === 'DEVELOPER'      ? 'bg-violet-100 text-violet-700' :
-                                log.userRole === 'SUPER_ADMIN'    ? 'bg-gray-800 text-white' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{role}</span>
-                            )}
-                            {!log.userRole && <span className="text-[10px] text-gray-400">Guest</span>}
-                          </div>
-                          {isError && log.message && (
-                            <p className="text-[11px] text-red-500 mt-0.5 truncate">{log.message}</p>
-                          )}
+                          <p className="text-xs font-medium text-gray-800 truncate">{describeLog(log)}</p>
                         </div>
 
-                        {/* Status code + time */}
-                        <div className="flex items-center gap-3 shrink-0">
-                          {log.statusCode && (
-                            <span className={`text-xs font-bold ${statusBadge(log.statusCode)}`}>{log.statusCode}</span>
-                          )}
+                        {/* Type badge + time */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${typeBadge}`}>
+                            {log.type}
+                          </span>
                           <span className="text-[11px] text-gray-400 whitespace-nowrap">{timeAgo(log.createdAt)}</span>
                           <ChevronRight className={`w-3.5 h-3.5 text-gray-300 transition-transform ${expandedLog === log._id ? 'rotate-90' : ''}`} />
                         </div>
@@ -774,13 +760,19 @@ export default function DeveloperDashboard() {
                       {expandedLog === log._id && (
                         <div className="bg-gray-50 border-t border-gray-100 px-4 py-3 space-y-1.5 text-xs text-gray-600">
                           <div className="flex flex-wrap gap-x-6 gap-y-1">
-                            <span><span className="text-gray-400">Route: </span><span className="font-mono text-gray-700">{log.method} {log.route}</span></span>
-                            <span><span className="text-gray-400">Response: </span><span className="font-semibold">{fmtTime(log.responseTime)}</span></span>
-                            <span><span className="text-gray-400">Device: </span>{log.device || '—'}</span>
-                            {log.message && <span><span className="text-gray-400">Message: </span>{log.message}</span>}
+                            <span><span className="text-gray-400">Time: </span>{new Date(log.createdAt).toLocaleString()}</span>
+                            {log.ip && <span><span className="text-gray-400">IP: </span><span className="font-mono">{log.ip}</span></span>}
+                            {log.userRole && <span><span className="text-gray-400">Role: </span>{ROLE_LABEL[log.userRole] || log.userRole}</span>}
+                            {log.route && <span><span className="text-gray-400">Route: </span><span className="font-mono">{log.method} {log.route}</span></span>}
                           </div>
+                          {log.metadata && (
+                            <div className="mt-1.5 bg-gray-100 rounded-lg p-2">
+                              <p className="text-[10px] font-bold text-gray-500 mb-1">Details</p>
+                              <pre className="text-gray-700 text-[10px] whitespace-pre-wrap break-all">{JSON.stringify(log.metadata, null, 2)}</pre>
+                            </div>
+                          )}
                           {log.stack && (
-                            <div className="mt-2 bg-red-900/90 rounded-lg p-3">
+                            <div className="mt-1.5 bg-red-900/90 rounded-lg p-3">
                               <p className="text-[10px] font-bold text-red-300 mb-1">Stack Trace</p>
                               <pre className="text-red-200 text-[10px] whitespace-pre-wrap break-all">{log.stack}</pre>
                             </div>
@@ -974,17 +966,134 @@ export default function DeveloperDashboard() {
                 </div>
               </div>
               <p className="text-xs text-gray-400">MongoDB {dbStats.mongoVersion} · Logs auto-purge after 30 days via TTL index.</p>
+
+              {/* R2 File Browser */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <Image className="w-3.5 h-3.5 text-orange-500" /> R2 Files (ID Proofs)
+                  </h3>
+                  {!r2FilesLoaded && (
+                    <button
+                      onClick={() => fetchR2Files()}
+                      disabled={r2FilesLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-lg text-xs font-bold hover:bg-orange-100 transition"
+                    >
+                      {r2FilesLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />} Load Files
+                    </button>
+                  )}
+                  {r2FilesLoaded && (
+                    <button onClick={() => fetchR2Files()} disabled={r2FilesLoading}
+                      className="flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition">
+                      <RefreshCw className={`w-3 h-3 ${r2FilesLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                </div>
+                {r2FilesLoaded && (
+                  r2Files.length === 0 ? (
+                    <div className="text-xs text-gray-400 text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">No files in R2 bucket.</div>
+                  ) : (
+                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50 text-gray-400 text-[10px] uppercase tracking-wider border-b border-gray-100">
+                              <th className="px-4 py-2.5 text-left">File Key</th>
+                              <th className="px-4 py-2.5 text-right">Size</th>
+                              <th className="px-4 py-2.5 text-right">Last Modified</th>
+                              <th className="px-4 py-2.5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {r2Files.map((f, i) => (
+                              <tr key={i} className="hover:bg-gray-50">
+                                <td className="px-4 py-2.5 font-mono text-gray-700 truncate max-w-xs">{f.key}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-500">{fmtBytes(f.size)}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-400">{f.lastModified ? new Date(f.lastModified).toLocaleDateString() : '—'}</td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <div className="flex items-center gap-1.5 justify-end">
+                                    {process.env.CF_R2_PUBLIC_URL && (
+                                      <a href={`${process.env.CF_R2_PUBLIC_URL}/${f.key}`} target="_blank" rel="noreferrer"
+                                        className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-600 rounded text-[10px] font-bold hover:bg-blue-100 transition">
+                                        <Eye className="w-2.5 h-2.5" /> View
+                                      </a>
+                                    )}
+                                    <button
+                                      onClick={() => runConfirmed('Delete R2 File', `Delete "${f.key}"? This permanently removes the ID proof photo.`, true, async () => {
+                                        const res = await fetch(`${API}/storage/file`, {
+                                          method: 'DELETE',
+                                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                                          body: JSON.stringify({ key: f.key })
+                                        });
+                                        const d = await res.json();
+                                        if (!res.ok) throw new Error(d.message);
+                                        setR2Files(prev => prev.filter(x => x.key !== f.key));
+                                        return d.message;
+                                      })}
+                                      className="flex items-center gap-1 px-2 py-0.5 bg-red-50 border border-red-200 text-red-600 rounded text-[10px] font-bold hover:bg-red-100 transition"
+                                    >
+                                      <Trash className="w-2.5 h-2.5" /> Del
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {r2NextToken && (
+                        <div className="p-3 border-t border-gray-100 text-center">
+                          <button onClick={() => fetchR2Files(r2NextToken)} disabled={r2FilesLoading}
+                            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-600 transition">
+                            Load more…
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           )}
 
           {/* ── SYSTEM ────────────────────────────────────────────────────── */}
           {tab === 'SYSTEM' && systemStats && (
             <div className="space-y-6">
+
+              {/* Server memory-pressure warning — only meaningful on the real server */}
+              {(() => {
+                const memPct = Number(systemStats.os.memUsagePercent) || 0;
+                if (systemStats.env !== 'production' || memPct < 85) return null;
+                const critical = memPct >= 90;
+                return (
+                  <div className={`rounded-xl border p-4 ${critical ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                    <div className="flex items-start gap-3">
+                      {critical
+                        ? <AlertOctagon className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                        : <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />}
+                      <div className="flex-1">
+                        <p className={`text-sm font-black ${critical ? 'text-red-700' : 'text-yellow-700'}`}>
+                          {critical ? 'Critical: server memory almost full' : 'Warning: server memory running high'}
+                        </p>
+                        <p className={`text-xs mt-1 leading-relaxed ${critical ? 'text-red-600' : 'text-yellow-700'}`}>
+                          OS memory is at <strong>{memPct}%</strong> ({systemStats.os.freeMemMB} MB free of {systemStats.os.totalMemMB} MB).
+                          {critical
+                            ? ' Upgrade the server now to avoid crashes.'
+                            : ' If it stays above ~85% consistently, plan to upgrade the server.'}
+                          {' '}Increase the EC2 instance size (e.g. <strong>t3.small</strong> → 2 GB or <strong>t3.medium</strong> → 4 GB):
+                          stop the instance → <em>Actions → Change instance type</em> → start. Attach an Elastic IP first so the public IP doesn’t change.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <StatCard icon={Clock} label="Uptime" value={systemStats.node.uptimeHuman} color="green" />
                 <StatCard icon={Cpu} label="Heap Used" value={`${systemStats.memory.heapUsedMB} MB`} sub={`of ${systemStats.memory.heapTotalMB} MB`} color="blue" />
                 <StatCard icon={HardDrive} label="RSS Memory" value={`${systemStats.memory.rssMB} MB`} color="indigo" />
-                <StatCard icon={Server} label="OS Memory" value={`${systemStats.os.memUsagePercent}%`} sub={`${systemStats.os.freeMemMB} MB free`} color="violet" />
+                <StatCard icon={Server} label="OS Memory" value={`${systemStats.os.memUsagePercent}%`} sub={`${systemStats.os.freeMemMB} MB free`} color="violet" danger={systemStats.env === 'production' && Number(systemStats.os.memUsagePercent) >= 90} />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -1109,6 +1218,44 @@ export default function DeveloperDashboard() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Server Restart */}
+              <div className="col-span-1 sm:col-span-2 bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                  <RotateCcw className="w-3.5 h-3.5 text-orange-500" /> Server Process
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Triggers <code className="bg-gray-100 px-1 rounded">process.exit(0)</code> — PM2 auto-restarts the Node.js process within ~3 seconds. Use this after updating <code className="bg-gray-100 px-1 rounded">.env</code> on the server.
+                </p>
+                {restartStatus && (
+                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg font-medium ${restartStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {restartStatus.type === 'success' ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                    {restartStatus.msg}
+                  </div>
+                )}
+                <button
+                  disabled={restartLoading}
+                  onClick={async () => {
+                    if (!confirm('Restart the backend server? It will be unavailable for ~3 seconds.')) return;
+                    setRestartLoading(true);
+                    setRestartStatus(null);
+                    try {
+                      const res = await fetch(`${API}/process/restart`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` } });
+                      const d = await res.json();
+                      setRestartStatus({ type: 'success', msg: d.message });
+                    } catch {
+                      setRestartStatus({ type: 'error', msg: 'Request failed — server may already be restarting.' });
+                    } finally {
+                      setRestartLoading(false);
+                      setTimeout(() => setRestartStatus(null), 6000);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition"
+                >
+                  {restartLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  Restart Server
+                </button>
               </div>
 
               {/* Maintenance Mode card */}
@@ -1294,6 +1441,11 @@ export default function DeveloperDashboard() {
                   </span>
                 );
               })}
+              {users.filter(u => u.isVerified === false).length > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 mr-1">
+                  ⏳ Pending Verification <span className="font-black">{users.filter(u => u.isVerified === false).length}</span>
+                </span>
+              )}
               {users.length === 0 ? (
                 <div className="text-center py-10 text-gray-400 text-sm">{loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : 'No users found.'}</div>
               ) : (
@@ -1327,25 +1479,37 @@ export default function DeveloperDashboard() {
                               {u.assignedProperty?.name || (u.role === 'PROPERTY_OWNER' ? `≤${u.maxHotelsAllowed} hotels` : '—')}
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`flex items-center gap-1 text-[10px] font-bold ${u.suspended ? 'text-red-600' : 'text-green-600'}`}>
-                                {u.suspended ? <PauseCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
-                                {u.suspended ? 'Suspended' : 'Active'}
-                              </span>
+                              {u.isVerified === false ? (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600">
+                                  <AlertTriangle className="w-3 h-3" /> Pending Verification
+                                </span>
+                              ) : (
+                                <span className={`flex items-center gap-1 text-[10px] font-bold ${u.suspended ? 'text-red-600' : 'text-green-600'}`}>
+                                  {u.suspended ? <PauseCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+                                  {u.suspended ? 'Suspended' : 'Active'}
+                                </span>
+                              )}
                               {u.suspended && u.suspendedReason && <div className="text-[10px] text-red-400 mt-0.5">{u.suspendedReason}</div>}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1 justify-end">
-                                {u.suspended ? (
+                                {u.isVerified === false && (
+                                  <button
+                                    onClick={() => runConfirmed('Approve Account', `Approve ${u.name}'s account without requiring OTP verification?`, false, () => devPatch(`/users/${u._id}/approve`, {}))}
+                                    className="flex items-center gap-1 px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded text-[10px] font-bold hover:bg-amber-100 transition"
+                                  ><CheckCircle className="w-3 h-3" /> Approve</button>
+                                )}
+                                {u.isVerified !== false && u.suspended ? (
                                   <button
                                     onClick={() => runConfirmed('Reactivate User', `Restore access for ${u.name}?`, false, () => devPatch(`/users/${u._id}/suspend`, { suspended: false }))}
                                     className="flex items-center gap-1 px-2 py-1 bg-green-50 border border-green-200 text-green-700 rounded text-[10px] font-bold hover:bg-green-100 transition"
                                   ><PlayCircle className="w-3 h-3" /> Reactivate</button>
-                                ) : (
+                                ) : u.isVerified !== false ? (
                                   <button
                                     onClick={() => runConfirmed('Suspend User', `Suspend ${u.name}? They will be logged out immediately.`, true, () => devPatch(`/users/${u._id}/suspend`, { suspended: true }))}
                                     className="flex items-center gap-1 px-2 py-1 bg-yellow-50 border border-yellow-200 text-yellow-700 rounded text-[10px] font-bold hover:bg-yellow-100 transition"
                                   ><PauseCircle className="w-3 h-3" /> Suspend</button>
-                                )}
+                                ) : null}
                                 <button
                                   onClick={() => runConfirmed('Force Logout', `Revoke session for ${u.name}? Their current access token will expire within 2h.`, false, () => devDelete(`/users/${u._id}/session`))}
                                   className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 text-gray-600 rounded text-[10px] font-bold hover:bg-gray-100 transition"
@@ -1358,6 +1522,14 @@ export default function DeveloperDashboard() {
                                   }}
                                   className="flex items-center gap-1 px-2 py-1 bg-red-50 border border-red-200 text-red-600 rounded text-[10px] font-bold hover:bg-red-100 transition"
                                 ><KeyRound className="w-3 h-3" /> Pwd</button>
+                                <button
+                                  onClick={() => {
+                                    setEditingUser(u);
+                                    setEditUserForm({ name: u.name, email: u.email, role: u.role });
+                                    setEditUserStatus(null);
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 bg-violet-50 border border-violet-200 text-violet-700 rounded text-[10px] font-bold hover:bg-violet-100 transition"
+                                ><Edit2 className="w-3 h-3" /> Edit</button>
                               </div>
                             </td>
                           </tr>
@@ -1643,6 +1815,198 @@ export default function DeveloperDashboard() {
             </div>
           )}
 
+          {/* ── DB BROWSE ─────────────────────────────────────────── */}
+          {tab === 'DB_BROWSE' && (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-400">Browse raw MongoDB documents. Passwords and refresh tokens are hidden. Deletion only allowed on <code className="bg-gray-100 px-1 rounded">logs</code> and <code className="bg-gray-100 px-1 rounded">uploadtokens</code>.</p>
+
+              {/* Controls */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <select
+                  value={dbBrowseCol}
+                  onChange={e => {
+                    setDbBrowseCol(e.target.value);
+                    setDbBrowseSearch('');
+                    setDbBrowseOffset(0);
+                    setDbBrowseExpanded(null);
+                    fetchDbBrowse(e.target.value, 0, '');
+                  }}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-violet-400 font-medium text-gray-700"
+                >
+                  <option value="users">users</option>
+                  <option value="properties">properties</option>
+                  <option value="bookings">bookings</option>
+                  <option value="logs">logs</option>
+                  <option value="uploadtokens">uploadtokens</option>
+                  <option value="maintenancemodes">maintenancemodes</option>
+                </select>
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-1 min-w-48">
+                  <Search className="w-3 h-3 text-gray-400 shrink-0" />
+                  <input
+                    value={dbBrowseSearch}
+                    onChange={e => setDbBrowseSearch(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { setDbBrowseOffset(0); fetchDbBrowse(dbBrowseCol, 0, dbBrowseSearch); } }}
+                    placeholder="Search by name, email, ID…"
+                    className="bg-transparent text-xs outline-none flex-1 text-gray-700"
+                  />
+                </div>
+                <button
+                  onClick={() => { setDbBrowseOffset(0); fetchDbBrowse(dbBrowseCol, 0, dbBrowseSearch); }}
+                  disabled={dbBrowseLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition"
+                >
+                  {dbBrowseLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />} Search
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-400">{fmt(dbBrowseTotal)} documents · showing {dbBrowseDocs.length}</p>
+
+              {/* Documents */}
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
+                {dbBrowseDocs.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-gray-400">
+                    {dbBrowseLoading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : 'No documents found. Click Search to load.'}
+                  </div>
+                ) : dbBrowseDocs.map((doc, i) => {
+                  const isExpanded = dbBrowseExpanded === i;
+                  const title = doc.name || doc.guestName || doc.email || doc.guestEmail || doc.subject || doc.route || String(doc._id);
+                  const sub = doc.email || doc.guestEmail || doc.status || doc.type || '';
+                  const isDeletable = ['logs', 'uploadtokens'].includes(dbBrowseCol);
+                  return (
+                    <div key={i}>
+                      <button
+                        onClick={() => setDbBrowseExpanded(isExpanded ? null : i)}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition"
+                      >
+                        <span className="font-mono text-[10px] text-gray-300 w-6 shrink-0">{dbBrowseOffset + i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-gray-800 truncate">{title}</div>
+                          {sub && <div className="text-[10px] text-gray-400 truncate">{sub}</div>}
+                        </div>
+                        <span className="font-mono text-[10px] text-gray-300 shrink-0">{String(doc._id).slice(-6)}</span>
+                        {isDeletable && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              runConfirmed('Delete Document', `Delete this ${dbBrowseCol} document?`, true, async () => {
+                                const res = await fetch(`${API}/db/${dbBrowseCol}/${doc._id}`, {
+                                  method: 'DELETE', headers: { Authorization: `Bearer ${token()}` }
+                                });
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.message);
+                                fetchDbBrowse();
+                                return d.message;
+                              });
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-red-50 border border-red-200 text-red-600 rounded text-[10px] font-bold hover:bg-red-100 transition shrink-0"
+                          ><Trash className="w-2.5 h-2.5" /></button>
+                        )}
+                        <ChevronRight className={`w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="bg-gray-900 px-4 py-3 border-t border-gray-100">
+                          <pre className="text-green-300 text-[10px] font-mono whitespace-pre-wrap break-all overflow-x-auto max-h-80">
+                            {JSON.stringify(doc, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination */}
+              {dbBrowseTotal > 20 && (
+                <div className="flex items-center gap-3 justify-center text-xs">
+                  <button disabled={dbBrowseOffset === 0}
+                    onClick={() => { const o = Math.max(0, dbBrowseOffset - 20); fetchDbBrowse(dbBrowseCol, o, dbBrowseSearch); }}
+                    className="px-3 py-1.5 border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50 font-medium">← Prev</button>
+                  <span className="text-gray-400">{dbBrowseOffset + 1}–{Math.min(dbBrowseOffset + 20, dbBrowseTotal)} of {fmt(dbBrowseTotal)}</span>
+                  <button disabled={dbBrowseOffset + 20 >= dbBrowseTotal}
+                    onClick={() => { const o = dbBrowseOffset + 20; fetchDbBrowse(dbBrowseCol, o, dbBrowseSearch); }}
+                    className="px-3 py-1.5 border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50 font-medium">Next →</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── ENV VARIABLES ────────────────────────────────────────── */}
+          {tab === 'ENV' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400">Current <code className="bg-gray-100 px-1 rounded">process.env</code> values. Sensitive keys are partially masked. This is read-only — edit <code className="bg-gray-100 px-1 rounded">.env</code> on the server then restart.</p>
+                {envVars && (
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${envVars.nodeEnv === 'production' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      NODE_ENV: {envVars.nodeEnv}
+                    </span>
+                    <button
+                      onClick={() => setEnvRevealAll(v => !v)}
+                      className="flex items-center gap-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-[10px] font-bold text-gray-600 transition"
+                    >
+                      {envRevealAll ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      {envRevealAll ? 'Hide' : 'Show all'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!envVars ? (
+                <div className="text-center py-10 text-gray-400 text-sm">
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto" />
+                </div>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-400 text-[10px] uppercase tracking-wider border-b border-gray-100">
+                          <th className="px-4 py-3 text-left">Variable</th>
+                          <th className="px-4 py-3 text-left">Value</th>
+                          <th className="px-4 py-3 text-center">Set</th>
+                          <th className="px-4 py-3 text-center">Sensitive</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {envVars.vars.map((v, i) => (
+                          <tr key={i} className={`hover:bg-gray-50 ${!v.isSet ? 'opacity-50' : ''}`}>
+                            <td className="px-4 py-2.5 font-mono font-semibold text-gray-800">{v.key}</td>
+                            <td className="px-4 py-2.5 font-mono text-gray-600 max-w-xs truncate">
+                              {!v.isSet ? (
+                                <span className="text-red-400 italic">(not set)</span>
+                              ) : v.sensitive && !envRevealAll ? (
+                                <span className="text-gray-400">{v.display}</span>
+                              ) : (
+                                <span className="text-green-700">{v.display}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              {v.isSet
+                                ? <CheckCircle className="w-3.5 h-3.5 text-green-500 mx-auto" />
+                                : <X className="w-3.5 h-3.5 text-red-400 mx-auto" />}
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              {v.sensitive
+                                ? <Shield className="w-3.5 h-3.5 text-orange-400 mx-auto" />
+                                : <span className="text-gray-300 text-[10px]">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 space-y-1">
+                <p className="font-bold flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> To change an env variable:</p>
+                <p>1. SSH into your EC2 server with your PEM key</p>
+                <p>2. Run <code className="bg-amber-100 px-1 rounded">nano ~/backend/.env</code> and edit the value</p>
+                <p>3. Click <strong>Restart Server</strong> in the System tab (or run <code className="bg-amber-100 px-1 rounded">pm2 restart all</code>)</p>
+              </div>
+            </div>
+          )}
+
           {/* Loading placeholder */}
           {loading && !overview && !logs.length && (
             <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
@@ -1655,6 +2019,78 @@ export default function DeveloperDashboard() {
             <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium ${actionStatus.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
               {actionStatus.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
               {actionStatus.msg}
+            </div>
+          )}
+
+          {/* Edit User modal */}
+          {editingUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                    <Edit2 className="w-4 h-4 text-violet-600" /> Edit User
+                  </h3>
+                  <button onClick={() => setEditingUser(null)} className="p-1 rounded hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
+                </div>
+
+                {editUserStatus && (
+                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg font-medium ${editUserStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {editUserStatus.type === 'success' ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                    {editUserStatus.msg}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Name</label>
+                    <input value={editUserForm.name} onChange={e => setEditUserForm(f => ({ ...f, name: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Email</label>
+                    <input type="email" value={editUserForm.email} onChange={e => setEditUserForm(f => ({ ...f, email: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Role</label>
+                    <select value={editUserForm.role} onChange={e => setEditUserForm(f => ({ ...f, role: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-500 bg-white">
+                      <option value="PROPERTY_OWNER">Property Owner</option>
+                      <option value="HOTEL_MANAGER">Hotel Manager</option>
+                      <option value="DEVELOPER">Developer</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => setEditingUser(null)} className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition">Cancel</button>
+                  <button
+                    disabled={editUserSaving}
+                    onClick={async () => {
+                      setEditUserSaving(true);
+                      setEditUserStatus(null);
+                      try {
+                        const res = await fetch(`${API}/users/${editingUser._id}/profile`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                          body: JSON.stringify(editUserForm)
+                        });
+                        const d = await res.json();
+                        if (res.ok) {
+                          setEditUserStatus({ type: 'success', msg: d.message });
+                          fetchUsers();
+                          setTimeout(() => setEditingUser(null), 1200);
+                        } else {
+                          setEditUserStatus({ type: 'error', msg: d.message });
+                        }
+                      } finally { setEditUserSaving(false); }
+                    }}
+                    className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2"
+                  >
+                    {editUserSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : null} Save
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1677,7 +2113,6 @@ export default function DeveloperDashboard() {
               </div>
             </div>
           )}
-        </div>
       </div>
     </div>
   );

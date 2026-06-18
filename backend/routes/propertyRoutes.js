@@ -7,7 +7,8 @@ const { body, validationResult } = require('express-validator');
 const Property = require('../models/Property');
 const Room = require('../models/Room');
 const User = require('../models/User');
-const { verifyToken, requireRole } = require('../middleware/authMiddleware');
+const { verifyToken, requireRole, requireAnyRole } = require('../middleware/authMiddleware');
+const { logEvent } = require('../middleware/requestLogger');
 const { uploadToR2, deleteFromR2 } = require('../utils/r2');
 
 // ---- MULTER: memory storage — files go to Cloudflare R2, not local disk ----
@@ -25,6 +26,22 @@ const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
   next();
+};
+
+// Object-level guard: may this user manage rooms/pricing for this property?
+// SUPER_ADMIN → any; PROPERTY_OWNER → only hotels they own;
+// HOTEL_MANAGER → only the single hotel assigned to them.
+const userCanManageProperty = async (user, propertyId) => {
+  if (user.role === 'SUPER_ADMIN') return true;
+  if (user.role === 'PROPERTY_OWNER') {
+    const prop = await Property.findOne({ _id: propertyId, owner: user.userId }).select('_id');
+    return !!prop;
+  }
+  if (user.role === 'HOTEL_MANAGER') {
+    const mgr = await User.findById(user.userId).select('assignedProperty');
+    return mgr?.assignedProperty?.toString() === String(propertyId);
+  }
+  return false;
 };
 
 // ==========================================
@@ -68,10 +85,17 @@ router.post('/create', verifyToken, requireRole('PROPERTY_OWNER'), [
       email: managerEmail,
       password: hashedPassword,
       role: 'HOTEL_MANAGER',
-      assignedProperty: newProperty._id, 
-      createdBy: ownerId 
+      assignedProperty: newProperty._id,
+      createdBy: ownerId,
+      isVerified: false,
+      emailVerified: false
     });
     await newManager.save();
+
+    logEvent('INFO',
+      `New hotel registered: "${name}" (${address}) by ${owner.name} — Manager: ${managerName}`,
+      { propertyId: newProperty._id, ownerId }
+    );
 
     res.status(201).json({
       message: 'Hotel and Manager successfully created!',
@@ -187,6 +211,11 @@ router.post('/:propertyId/rooms', verifyToken, requireRole('PROPERTY_OWNER'), [
 
     await newRoom.save();
 
+    logEvent('INFO',
+      `Room ${roomNumber} (${category}, capacity ${capacity || 2}) added to "${property.name}"`,
+      { roomId: newRoom._id, propertyId, by: req.user.userId }
+    );
+
     res.status(201).json({
       message: `Room ${roomNumber} (${category}) successfully added to ${property.name}!`,
       room: newRoom
@@ -197,6 +226,73 @@ router.post('/:propertyId/rooms', verifyToken, requireRole('PROPERTY_OWNER'), [
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
+
+// ==========================================
+// 4b. UPDATE A ROOM — price / capacity / category / status
+//     Allowed for the hotel OWNER, its assigned MANAGER, and SUPER_ADMIN.
+//     Price changes affect future bookings only; existing bookings keep
+//     their locked-in totalAmount.
+// ==========================================
+// PATCH /api/properties/:propertyId/rooms/:roomId
+router.patch('/:propertyId/rooms/:roomId',
+  verifyToken,
+  requireAnyRole('PROPERTY_OWNER', 'HOTEL_MANAGER', 'SUPER_ADMIN'),
+  [
+    body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a positive number.'),
+    body('capacity').optional().isInt({ min: 1, max: 20 }).withMessage('Capacity must be between 1 and 20.'),
+    body('category').optional().isIn(['STANDARD_NON_AC', 'DELUXE_AC', 'PREMIUM_SUITE']).withMessage('Invalid room category.'),
+    body('currentStatus').optional().isIn(['AVAILABLE', 'OCCUPIED', 'CLEANING', 'MAINTENANCE']).withMessage('Invalid room status.'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { propertyId, roomId } = req.params;
+
+      const allowed = await userCanManageProperty(req.user, propertyId);
+      if (!allowed) return res.status(403).json({ message: 'Access denied. You cannot manage this hotel.' });
+
+      const room = await Room.findOne({ _id: roomId, property: propertyId });
+      if (!room) return res.status(404).json({ message: 'Room not found in this hotel.' });
+
+      const { basePrice, capacity, category, currentStatus } = req.body;
+      const changes = [];
+
+      if (basePrice !== undefined && Number(basePrice) !== room.basePrice) {
+        changes.push(`price ₹${room.basePrice} → ₹${Number(basePrice)}`);
+        room.basePrice = Number(basePrice);
+      }
+      if (capacity !== undefined && Number(capacity) !== room.capacity) {
+        changes.push(`capacity ${room.capacity} → ${Number(capacity)}`);
+        room.capacity = Number(capacity);
+      }
+      if (category !== undefined && category !== room.category) {
+        changes.push(`category ${room.category} → ${category}`);
+        room.category = category;
+      }
+      if (currentStatus !== undefined && currentStatus !== room.currentStatus) {
+        changes.push(`status ${room.currentStatus} → ${currentStatus}`);
+        room.currentStatus = currentStatus;
+      }
+
+      if (changes.length === 0) {
+        return res.status(200).json({ message: 'No changes were made.', room });
+      }
+
+      await room.save();
+
+      const property = await Property.findById(propertyId).select('name');
+      logEvent('INFO',
+        `Room ${room.roomNumber} updated at "${property?.name || propertyId}" (${changes.join(', ')}) by ${req.user.role}`,
+        { roomId: room._id, propertyId, by: req.user.userId }
+      );
+
+      res.status(200).json({ message: `Room ${room.roomNumber} updated successfully.`, room });
+    } catch (error) {
+      console.error('Room update error:', error);
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
+  }
+);
 
 // ==========================================
 // 5. GET ALL ROOMS FOR A SPECIFIC HOTEL
@@ -222,6 +318,61 @@ router.get('/:propertyId/rooms', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
+
+// ==========================================
+// 5b. TOGGLE HOTEL STATUS — ACTIVE ↔ INACTIVE
+//     PROPERTY_OWNER: own hotels only, ACTIVE ↔ INACTIVE.
+//     SUPER_ADMIN: any hotel, any status value.
+//     HOTEL_MANAGER: not allowed (status is an owner-level decision).
+//     SUSPENDED hotels can only be reactivated by SUPER_ADMIN or DEVELOPER.
+// ==========================================
+// PATCH /api/properties/:propertyId/status
+router.patch('/:propertyId/status',
+  verifyToken,
+  requireAnyRole('PROPERTY_OWNER', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const { status } = req.body;
+
+      const VALID = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+      if (!status || !VALID.includes(status)) {
+        return res.status(400).json({ message: `Status must be one of: ${VALID.join(', ')}` });
+      }
+
+      // Owners can only set ACTIVE or INACTIVE (not SUSPENDED — that's a developer action)
+      if (req.user.role === 'PROPERTY_OWNER' && status === 'SUSPENDED') {
+        return res.status(403).json({ message: 'Only the platform admin can suspend a hotel.' });
+      }
+
+      // Object-level check: owner must own this hotel
+      const allowed = await userCanManageProperty(req.user, propertyId);
+      if (!allowed) return res.status(403).json({ message: 'Access denied. You do not own this hotel.' });
+
+      const property = await Property.findById(propertyId);
+      if (!property) return res.status(404).json({ message: 'Hotel not found.' });
+
+      // Owners cannot un-suspend a SUSPENDED hotel
+      if (req.user.role === 'PROPERTY_OWNER' && property.status === 'SUSPENDED') {
+        return res.status(403).json({ message: 'This hotel has been suspended by the platform. Contact support.' });
+      }
+
+      const prev = property.status;
+      property.status = status;
+      await property.save();
+
+      logEvent('INFO',
+        `Hotel "${property.name}" status changed: ${prev} → ${status} by ${req.user.role}`,
+        { propertyId, by: req.user.userId }
+      );
+
+      res.json({ message: `Hotel "${property.name}" is now ${status}.`, status });
+    } catch (error) {
+      console.error('Hotel status toggle error:', error);
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
+  }
+);
 
 // ==========================================
 // 6. GOD VIEW: GET ALL PROPERTIES (Super Admin Only)

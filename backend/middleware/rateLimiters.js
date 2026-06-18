@@ -17,13 +17,27 @@ const generalLimiter = rateLimit({
   message: { message: 'Too many requests from this IP. Please try again after 15 minutes.' }
 });
 
-// Auth limiter: 30 attempts / 15 min (raised from 20)
+// Login limiter: 20 failed attempts / 15 min
+// skipSuccessfulRequests: successful logins don't count toward the cap.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 20,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Too many login attempts. Please try again after 15 minutes.' }
+  message: { message: 'Too many failed login attempts. Please try again after 15 minutes.' }
+});
+
+// Refresh limiter: 500 req / 15 min — silent background calls from every open tab.
+// Must NOT share the login limiter; a user with 3 browser tabs refreshes tokens
+// every 2h × 3 tabs = dozens of calls per day, all legitimate.
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  skip: skipIfAuthenticated,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many token refresh requests. Please try again after 15 minutes.' }
 });
 
 const resetIP = (ip) => {
@@ -33,7 +47,8 @@ const resetIP = (ip) => {
 
 const getLimiterConfig = () => ({
   general: { windowMs: 15 * 60 * 1000, max: 300, description: '300 req / 15 min (unauthenticated IPs only — authenticated users are exempt)' },
-  auth:    { windowMs: 15 * 60 * 1000, max: 30,  description: '30 attempts / 15 min on auth routes' }
+  auth:    { windowMs: 15 * 60 * 1000, max: 20,  description: '20 failed attempts / 15 min — successful logins not counted' },
+  refresh: { windowMs: 15 * 60 * 1000, max: 500, description: '500 req / 15 min — unauthenticated only; authenticated tabs are exempt' }
 });
 
-module.exports = { generalLimiter, authLimiter, resetIP, getLimiterConfig };
+module.exports = { generalLimiter, authLimiter, refreshLimiter, resetIP, getLimiterConfig };

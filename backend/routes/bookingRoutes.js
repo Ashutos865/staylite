@@ -8,6 +8,7 @@ const Room = require('../models/Room');
 const Property = require('../models/Property');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { logEvent } = require('../middleware/requestLogger');
 const { uploadToR2, isConfigured } = require('../utils/r2');
 
 const idUpload = multer({
@@ -87,6 +88,13 @@ router.post('/create', verifyToken, [
     });
 
     await newBooking.save();
+
+    const prop = await Property.findById(propertyId).select('name');
+    const nights = Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24));
+    logEvent('INFO',
+      `New booking: ${guestName} (${guestCount || 1} guest${guestCount > 1 ? 's' : ''}) → ${prop?.name || propertyId}, ${nights} night${nights > 1 ? 's' : ''}, ₹${totalAmount || 0}`,
+      { bookingId: newBooking._id, createdBy: req.user.userId }
+    );
 
     res.status(201).json({
       message: 'Reservation created successfully! Awaiting room assignment.',
@@ -227,6 +235,12 @@ router.put('/:id/assign', verifyToken, async (req, res) => {
     let successMessage = `Rooms ${result.assignedRoomNumbers.join(', ')} successfully assigned!`;
     if (result.isAdjustmentNeeded) successMessage += ' Note: Extra bed adjustments required due to room capacities.';
 
+    const assignProp = await Property.findById(result.booking.property).select('name');
+    logEvent('INFO',
+      `Booking confirmed: ${result.booking.guestName} assigned to Room${result.assignedRoomNumbers.length > 1 ? 's' : ''} ${result.assignedRoomNumbers.join(', ')} at ${assignProp?.name || result.booking.property}`,
+      { bookingId: result.booking._id, confirmedBy: req.user.userId }
+    );
+
     res.status(200).json({ message: successMessage, booking: result.booking, isAdjustmentNeeded: result.isAdjustmentNeeded });
 
   } catch (error) {
@@ -281,9 +295,36 @@ router.put('/:id/status', verifyToken, async (req, res) => {
 
     await booking.save();
 
-    res.status(200).json({ 
-      message: `Booking successfully marked as ${status.replace('_', ' ')}`, 
-      booking 
+    // Human-readable audit log for meaningful status transitions
+    const statusProp = await Property.findById(booking.property).select('name');
+    const hotelName = statusProp?.name || 'unknown hotel';
+    const rooms = booking.assignedRooms?.map(r => r.room?.roomNumber || r.room).filter(Boolean).join(', ') || '—';
+
+    if (status === 'CHECKED_IN') {
+      logEvent('INFO',
+        `Check-in: ${booking.guestName} checked into Room ${rooms} at ${hotelName}`,
+        { bookingId: booking._id, by: req.user.userId, payment: additionalPayment || 0 }
+      );
+    } else if (status === 'CHECKED_OUT') {
+      logEvent('INFO',
+        `Check-out: ${booking.guestName} checked out of Room ${rooms} at ${hotelName} (total paid: ₹${booking.advancePaid})`,
+        { bookingId: booking._id, by: req.user.userId }
+      );
+    } else if (status === 'CANCELLED') {
+      logEvent('INFO',
+        `Booking cancelled: ${booking.guestName} at ${hotelName}`,
+        { bookingId: booking._id, cancelledBy: req.user.userId }
+      );
+    } else if (additionalPayment && Number(additionalPayment) > 0) {
+      logEvent('INFO',
+        `Payment of ₹${Number(additionalPayment).toLocaleString('en-IN')} recorded for ${booking.guestName} at ${hotelName} (${paymentMethod || 'UPI'})`,
+        { bookingId: booking._id, by: req.user.userId }
+      );
+    }
+
+    res.status(200).json({
+      message: `Booking successfully marked as ${status.replace('_', ' ')}`,
+      booking
     });
 
   } catch (error) {

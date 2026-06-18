@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const { generalLimiter, authLimiter } = require('./middleware/rateLimiters');
+const { generalLimiter, authLimiter, refreshLimiter } = require('./middleware/rateLimiters');
 const { requestLogger } = require('./middleware/requestLogger');
 
 // Initialize Express App
@@ -33,7 +33,7 @@ app.use(cors({
 // --- RATE LIMITING ---
 app.use(generalLimiter);
 app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/refresh', authLimiter);
+app.use('/api/auth/refresh', refreshLimiter);
 
 // --- REQUEST LOGGER (captures every API call into MongoDB) ---
 app.use(requestLogger);
@@ -46,6 +46,16 @@ const connectDB = async () => {
     }
     await mongoose.connect(process.env.MONGO_URI);
     console.log('✅ MongoDB Connected Successfully to Hotel SaaS DB');
+
+    // One-time migration: stamp isVerified/emailVerified on pre-existing users
+    const User = require('./models/User');
+    const { modifiedCount } = await User.updateMany(
+      { isVerified: { $exists: false } },
+      { $set: { isVerified: true, emailVerified: true } }
+    );
+    if (modifiedCount > 0) {
+      console.log(`✅ Migration: stamped isVerified=true on ${modifiedCount} existing user(s)`);
+    }
   } catch (error) {
     console.error('❌ MongoDB Connection Failed:', error.message);
     process.exit(1); // Stop the server if the database fails
@@ -109,6 +119,10 @@ app.use('/api/notifications', notificationRoutes);
 // 9. Support Ticket System
 const supportRoutes = require('./routes/supportRoutes');
 app.use('/api/support', supportRoutes);
+
+// 10. OTP — guest phone verification + (auth routes handle staff password reset)
+const otpRoutes = require('./routes/otpRoutes');
+app.use('/api/otp', otpRoutes);
 
 
 // --- START SERVER ---

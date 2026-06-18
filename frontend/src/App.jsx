@@ -3,7 +3,8 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import {
   CalendarDays, Package, BarChart3, LogOut, Hotel, UserCircle, ShieldCheck,
   Building, Loader2, Menu, X, Terminal, CalendarRange, Building2, Wrench,
-  ShieldX, ArrowLeft, ChevronRight, Sun, Moon
+  ShieldX, ArrowLeft, ChevronRight, Sun, Moon,
+  Activity, AlertTriangle, Server, Database, FolderOpen, Users, HelpCircle
 } from 'lucide-react';
 import NotificationBell from './components/NotificationBell';
 import SupportWidget from './components/SupportWidget';
@@ -18,6 +19,7 @@ import OwnerDashboard from './components/OwnerDashboard';
 import DeveloperDashboard from './components/DeveloperDashboard';
 import GuestPortal from './components/GuestPortal';
 import IDUploadPage from './components/IDUploadPage';
+import AccountVerification from './components/AccountVerification';
 
 const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', '/inventory', '/summary', '/developer'];
 
@@ -25,8 +27,34 @@ const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', 
 export const ThemeContext = createContext({ dark: false, toggle: () => {} });
 const isStaffPath = () => STAFF_PATHS.some(p => window.location.pathname === p || window.location.pathname.startsWith(p + '/'));
 
+// Developer Console sections — rendered as grouped sub-nav in the main sidebar
+// for the DEVELOPER role (state lives in StaffPortal, shared with DeveloperDashboard).
+const DEV_NAV = [
+  { group: 'Monitor',        items: [
+    { t: 'OVERVIEW',  label: 'Overview', icon: BarChart3 },
+    { t: 'LOGS',      label: 'Logs',     icon: Activity },
+    { t: 'ERRORS',    label: 'Errors',   icon: AlertTriangle },
+  ]},
+  { group: 'Infrastructure', items: [
+    { t: 'SYSTEM',    label: 'System',   icon: Server },
+    { t: 'DATABASE',  label: 'Database', icon: Database },
+    { t: 'ENV',       label: 'Env Vars', icon: Package },
+  ]},
+  { group: 'Data',           items: [
+    { t: 'DB_BROWSE', label: 'DB Browse', icon: FolderOpen },
+  ]},
+  { group: 'Management',     items: [
+    { t: 'USERS',     label: 'Users',    icon: Users },
+    { t: 'ACCESS',    label: 'Hotels',   icon: Building2 },
+  ]},
+  { group: 'Operations',     items: [
+    { t: 'CLEANUP',   label: 'Cleanup',  icon: Wrench },
+    { t: 'SUPPORT',   label: 'Support',  icon: HelpCircle },
+  ]},
+];
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-const Sidebar = ({ onLogout, user, isOpen, setIsOpen }) => {
+const Sidebar = ({ onLogout, user, isOpen, setIsOpen, devSection, setDevSection }) => {
   const location = useLocation();
 
   const navItems = [
@@ -74,29 +102,60 @@ const Sidebar = ({ onLogout, user, isOpen, setIsOpen }) => {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-0.5">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-3 mb-3">Navigation</p>
-          {visible.map((item) => {
-            const Icon = item.icon;
-            const active = location.pathname === item.path;
-            return (
-              <Link
-                key={item.name}
-                to={item.path}
-                onClick={() => setIsOpen(false)}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-all group ${
-                  active
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`} />
-                  <span className="text-sm font-medium">{item.name}</span>
+          {user?.role === 'DEVELOPER' ? (
+            /* Developer Console — grouped sections (no second sidebar) */
+            DEV_NAV.map((grp) => (
+              <div key={grp.group} className="mb-3">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-3 mb-1.5">{grp.group}</p>
+                <div className="space-y-0.5">
+                  {grp.items.map(({ t, label, icon: Icon }) => {
+                    const active = devSection === t;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => { setDevSection(t); setIsOpen(false); }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all group ${
+                          active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`} />
+                          <span className="text-sm font-medium">{label}</span>
+                        </div>
+                        {active && <ChevronRight className="w-3.5 h-3.5 text-blue-200" />}
+                      </button>
+                    );
+                  })}
                 </div>
-                {active && <ChevronRight className="w-3.5 h-3.5 text-blue-200" />}
-              </Link>
-            );
-          })}
+              </div>
+            ))
+          ) : (
+            <>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-3 mb-3">Navigation</p>
+              {visible.map((item) => {
+                const Icon = item.icon;
+                const active = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.path}
+                    onClick={() => setIsOpen(false)}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-all group ${
+                      active
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`} />
+                      <span className="text-sm font-medium">{item.name}</span>
+                    </div>
+                    {active && <ChevronRight className="w-3.5 h-3.5 text-blue-200" />}
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </nav>
 
         {/* User section */}
@@ -261,11 +320,12 @@ const Topbar = ({ user, onMenuClick }) => {
 // ── Staff Portal ──────────────────────────────────────────────────────────────
 function StaffPortal({ user, onLogout }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [devSection, setDevSection] = useState('OVERVIEW'); // active Dev Console section (shared with sidebar)
   const { alert: checkoutAlert, dismiss, snooze } = useCheckoutAlert(user);
 
   return (
     <div className="flex bg-gray-50 dark:bg-slate-950 min-h-screen font-sans text-gray-900 dark:text-slate-100 transition-colors duration-200">
-      <Sidebar onLogout={onLogout} user={user} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+      <Sidebar onLogout={onLogout} user={user} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} devSection={devSection} setDevSection={setDevSection} />
       <div className="flex-1 lg:ml-64 flex flex-col min-w-0 h-screen">
         <Topbar user={user} onMenuClick={() => setIsSidebarOpen(true)} />
         <CheckoutAlertBanner alert={checkoutAlert} onDismiss={dismiss} onSnooze={snooze} />
@@ -273,7 +333,7 @@ function StaffPortal({ user, onLogout }) {
           <Routes>
             {user.role === 'SUPER_ADMIN'    && <Route path="/admin"      element={<AdminDashboard />} />}
             {user.role === 'PROPERTY_OWNER' && <Route path="/properties" element={<OwnerDashboard user={user} />} />}
-            {user.role === 'DEVELOPER'      && <Route path="/developer"  element={<DeveloperDashboard />} />}
+            {user.role === 'DEVELOPER'      && <Route path="/developer"  element={<DeveloperDashboard tab={devSection} setTab={setDevSection} />} />}
             <Route path="/inflow"    element={<BookingInflow user={user} />} />
             <Route path="/calendar"  element={<BookingCalendar user={user} />} />
             <Route path="/inventory" element={<Inventory user={user} />} />
@@ -498,6 +558,20 @@ export default function App() {
   }
 
   if (!user) return <Login onLogin={setUser} maintenance={maintenance} />;
+
+  // Verification wall — PROPERTY_OWNER and HOTEL_MANAGER must verify email + phone before using the app.
+  // SUPER_ADMIN and DEVELOPER are always allowed through (isVerified defaults to true for them).
+  if (!user.isVerified && ['PROPERTY_OWNER', 'HOTEL_MANAGER'].includes(user.role)) {
+    return (
+      <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
+        <AccountVerification
+          user={user}
+          onVerified={(updatedUser) => setUser(updatedUser)}
+          onLogout={handleLogout}
+        />
+      </ThemeContext.Provider>
+    );
+  }
 
   // Maintenance screen for non-privileged users
   const isMaintenanceActive  = maintenance?.isActive;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lock, Mail, Loader2, Wrench, ShieldX, ArrowLeft, Hotel, Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { Lock, Mail, Loader2, Wrench, ShieldX, ArrowLeft, Hotel, Eye, EyeOff, ChevronDown, KeyRound, CheckCircle2, RefreshCw } from 'lucide-react';
 import { setToken } from '../utils/api';
 
 // ── Suspended Screen ──────────────────────────────────────────────────────────
@@ -46,6 +46,195 @@ function SuspendedScreen({ message, onBack }) {
   );
 }
 
+// ── Forgot Password (3-step: email → OTP → new password) ──────────────────────
+function ForgotPassword({ onBack }) {
+  const [step, setStep]           = useState('EMAIL'); // 'EMAIL' | 'OTP' | 'RESET' | 'DONE'
+  const [fpEmail, setFpEmail]     = useState('');
+  const [otp, setOtp]             = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPass, setNewPass]     = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [showNew, setShowNew]     = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  const startCooldown = () => {
+    setResendCooldown(60);
+    const t = setInterval(() => setResendCooldown(v => { if (v <= 1) { clearInterval(t); return 0; } return v - 1; }), 1000);
+  };
+
+  const sendOtp = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: fpEmail })
+      });
+      const d = await res.json();
+      if (res.ok) { setStep('OTP'); startCooldown(); }
+      else setError(d.message || 'Failed to send OTP.');
+    } catch { setError('Cannot connect to server.'); }
+    finally { setLoading(false); }
+  };
+
+  const verifyOtp = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/auth/verify-reset-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: fpEmail, code: otp.trim() })
+      });
+      const d = await res.json();
+      if (res.ok) { setResetToken(d.resetToken); setStep('RESET'); }
+      else setError(d.message || 'Invalid OTP.');
+    } catch { setError('Cannot connect to server.'); }
+    finally { setLoading(false); }
+  };
+
+  const resetPassword = async () => {
+    if (newPass !== confirmPass) { setError('Passwords do not match.'); return; }
+    if (newPass.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resetToken, newPassword: newPass })
+      });
+      const d = await res.json();
+      if (res.ok) setStep('DONE');
+      else setError(d.message || 'Failed to reset password.');
+    } catch { setError('Cannot connect to server.'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white p-6">
+      <div className="w-full max-w-sm space-y-6">
+
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition">
+          <ArrowLeft className="w-4 h-4" /> Back to sign in
+        </button>
+
+        {step === 'EMAIL' && (
+          <>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-gray-900">Forgot password?</h2>
+              <p className="text-sm text-gray-500">Enter your registered email and we'll send a verification code.</p>
+            </div>
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-gray-700">Email address</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <input type="email" required value={fpEmail} onChange={e => setFpEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  onKeyDown={e => e.key === 'Enter' && fpEmail && sendOtp()} />
+              </div>
+            </div>
+            <button onClick={sendOtp} disabled={loading || !fpEmail}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><KeyRound className="w-4 h-4" /> Send OTP</>}
+            </button>
+          </>
+        )}
+
+        {step === 'OTP' && (
+          <>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-gray-900">Enter OTP</h2>
+              <p className="text-sm text-gray-500">A 6-digit code was sent to <strong>{fpEmail}</strong>. Check your inbox (and spam).</p>
+            </div>
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-gray-700">6-digit OTP</label>
+              <input type="text" inputMode="numeric" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                placeholder="— — — — — —"
+                className="w-full text-center tracking-[0.5em] text-xl font-mono py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                onKeyDown={e => e.key === 'Enter' && otp.length === 6 && verifyOtp()} />
+            </div>
+            <button onClick={verifyOtp} disabled={loading || otp.length !== 6}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Verify OTP'}
+            </button>
+            <div className="text-center">
+              {resendCooldown > 0
+                ? <p className="text-xs text-gray-400">Resend available in {resendCooldown}s</p>
+                : <button onClick={() => { setOtp(''); setError(''); sendOtp(); }}
+                    className="text-xs text-blue-600 hover:underline flex items-center gap-1 mx-auto">
+                    <RefreshCw className="w-3 h-3" /> Resend OTP
+                  </button>
+              }
+            </div>
+          </>
+        )}
+
+        {step === 'RESET' && (
+          <>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-gray-900">New password</h2>
+              <p className="text-sm text-gray-500">Choose a strong password for your account.</p>
+            </div>
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">New password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type={showNew ? 'text' : 'password'} value={newPass} onChange={e => setNewPass(e.target.value)}
+                    placeholder="Min 6 characters"
+                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                  <button type="button" onClick={() => setShowNew(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">Confirm password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input type="password" value={confirmPass} onChange={e => setConfirmPass(e.target.value)}
+                    placeholder="Repeat password"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    onKeyDown={e => e.key === 'Enter' && resetPassword()} />
+                </div>
+              </div>
+            </div>
+            <button onClick={resetPassword} disabled={loading || !newPass || !confirmPass}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Set New Password'}
+            </button>
+          </>
+        )}
+
+        {step === 'DONE' && (
+          <div className="text-center space-y-4 py-6">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-full bg-green-50 border border-green-200 flex items-center justify-center">
+                <CheckCircle2 className="w-8 h-8 text-green-500" />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Password updated!</h2>
+              <p className="text-sm text-gray-500 mt-1">You can now sign in with your new password.</p>
+            </div>
+            <button onClick={onBack}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition">
+              Back to Sign In
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 // ── Main Login ─────────────────────────────────────────────────────────────────
 export default function Login({ onLogin, maintenance }) {
   const [email, setEmail]         = useState('');
@@ -55,6 +244,7 @@ export default function Login({ onLogin, maintenance }) {
   const [isLoading, setIsLoading] = useState(false);
   const [suspended, setSuspended] = useState(null);
   const [showDev, setShowDev]     = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -90,6 +280,10 @@ export default function Login({ onLogin, maintenance }) {
         onBack={() => { setSuspended(null); setPassword(''); setError(''); }}
       />
     );
+  }
+
+  if (showForgot) {
+    return <ForgotPassword onBack={() => setShowForgot(false)} />;
   }
 
   return (
@@ -226,6 +420,13 @@ export default function Login({ onLogin, maintenance }) {
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign In'}
             </button>
+
+            <div className="text-center">
+              <button type="button" onClick={() => setShowForgot(true)}
+                className="text-xs text-gray-400 hover:text-blue-600 transition">
+                Forgot password?
+              </button>
+            </div>
           </form>
 
           {/* Dev accounts (collapsible) */}

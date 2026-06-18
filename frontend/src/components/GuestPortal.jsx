@@ -66,6 +66,13 @@ export default function GuestPortal() {
   const [submitError, setSubmitError] = useState('');
   const [confirmed, setConfirmed]     = useState(null);
 
+  // Phone OTP state
+  const [otpCode, setOtpCode]         = useState('');
+  const [otpError, setOtpError]       = useState('');
+  const [otpLoading, setOtpLoading]   = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpSent, setOtpSent]         = useState(false);  // true once OTP dispatched
+
   const [trackId, setTrackId]         = useState('');
   const [tracked, setTracked]         = useState(null);
   const [trackError, setTrackError]   = useState('');
@@ -174,21 +181,55 @@ export default function GuestPortal() {
     return selectedCategory.minPrice * nightCount(form.checkIn, form.checkOut) * (form.roomsRequested || 1);
   };
 
-  const handleSubmit = async (e) => {
+  // Step 1: send OTP to guest phone, then move to OTP screen
+  const handleSendOtp = async (e) => {
     e.preventDefault();
-    setSubmitting(true);
-    setSubmitError('');
+    if (!form.guestPhone) { setSubmitError('Please enter your phone number.'); return; }
+    setOtpLoading(true); setOtpError(''); setSubmitError('');
     try {
+      const res = await fetch('/api/otp/guest/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: form.guestPhone, channel: 'SMS' })
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setOtpSent(true);
+        setScreen('OTP');
+        setOtpCode('');
+        // 60-second resend cooldown
+        setOtpCooldown(60);
+        const t = setInterval(() => setOtpCooldown(v => { if (v <= 1) { clearInterval(t); return 0; } return v - 1; }), 1000);
+      } else {
+        setSubmitError(d.message || 'Failed to send OTP. Please try again.');
+      }
+    } catch { setSubmitError('Network error. Please check your connection.'); }
+    finally { setOtpLoading(false); }
+  };
+
+  // Step 2: verify OTP, then create booking
+  const handleVerifyAndBook = async () => {
+    if (otpCode.length !== 6) { setOtpError('Enter the 6-digit code.'); return; }
+    setOtpLoading(true); setOtpError('');
+    try {
+      // Verify OTP
+      const vRes = await fetch('/api/otp/guest/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: form.guestPhone, code: otpCode })
+      });
+      const vData = await vRes.json();
+      if (!vRes.ok) { setOtpError(vData.message || 'Invalid OTP.'); setOtpLoading(false); return; }
+
+      // OTP verified — now create the booking
+      setSubmitting(true);
       const res = await fetch(`${API}/bookings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, propertyId: selectedHotel._id })
       });
       const data = await res.json();
-      if (!res.ok) {
-        setSubmitError(data.message || 'Something went wrong. Please try again.');
-        return;
-      }
+      if (!res.ok) { setOtpError(data.message || 'Booking failed. Please try again.'); return; }
       if (form.paymentMethod === 'CASHFREE') {
         await triggerCashfree(data.bookingId, data.totalAmount);
       } else {
@@ -196,9 +237,14 @@ export default function GuestPortal() {
         setScreen('CONFIRM');
         updateMeta('Booking Confirmed — StayLite', 'Your hotel booking is confirmed.');
       }
-    } catch {
-      setSubmitError('Network error. Please check your connection and try again.');
-    } finally { setSubmitting(false); }
+    } catch { setOtpError('Network error. Please check your connection and try again.'); }
+    finally { setOtpLoading(false); setSubmitting(false); }
+  };
+
+  // Legacy — kept for Cashfree return flow only
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    handleSendOtp(e);
   };
 
   const triggerCashfree = async (bookingId) => {
@@ -653,6 +699,68 @@ export default function GuestPortal() {
                   </div>
                 </div>
               </aside>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* PHONE OTP VERIFICATION                     */}
+        {/* ========================================== */}
+        {screen === 'OTP' && (
+          <div className="max-w-md mx-auto px-4 py-16">
+            <button onClick={() => setScreen('BOOK')}
+              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 mb-8 transition">
+              <ArrowLeft className="w-4 h-4" /> Back to booking form
+            </button>
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 space-y-6">
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto">
+                  <Phone className="w-6 h-6 text-indigo-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">Verify your phone</h2>
+                <p className="text-sm text-gray-500">
+                  A 6-digit OTP was sent to <strong>{form.guestPhone}</strong> via SMS.
+                </p>
+              </div>
+
+              {otpError && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  {otpError}
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700 text-center">Enter 6-digit OTP</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="— — — — — —"
+                  className="w-full text-center tracking-[0.5em] text-2xl font-mono py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                  onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyAndBook()}
+                />
+              </div>
+
+              <button
+                onClick={handleVerifyAndBook}
+                disabled={otpLoading || submitting || otpCode.length !== 6}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold rounded-xl transition"
+              >
+                {(otpLoading || submitting) ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle className="w-4 h-4" /> Verify & Confirm Booking</>}
+              </button>
+
+              <div className="text-center">
+                {otpCooldown > 0
+                  ? <p className="text-xs text-gray-400">Resend available in {otpCooldown}s</p>
+                  : <button
+                      onClick={e => { setOtpCode(''); setOtpError(''); handleSendOtp(e); }}
+                      className="text-xs text-indigo-600 hover:underline"
+                    >Resend OTP</button>
+                }
+              </div>
             </div>
           </div>
         )}

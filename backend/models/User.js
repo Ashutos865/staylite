@@ -64,7 +64,13 @@ const userSchema = new mongoose.Schema({
   refreshToken: {
     type: String,
     default: null
-  }
+  },
+
+  // Account verification — set to false for new PROPERTY_OWNER / HOTEL_MANAGER accounts.
+  // Default true so existing users in the DB are not affected.
+  isVerified:    { type: Boolean, default: true },
+  emailVerified: { type: Boolean, default: true },
+  phone:         { type: String,  default: '' }
 
 }, {
   timestamps: true

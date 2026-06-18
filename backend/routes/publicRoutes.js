@@ -8,6 +8,7 @@ const Property = require('../models/Property');
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const UploadToken = require('../models/UploadToken');
+const Otp = require('../models/Otp');
 const { uploadToR2, isConfigured } = require('../utils/r2');
 
 // Multer memory storage for ID proof uploads
@@ -218,6 +219,12 @@ router.post('/bookings', [
   try {
     const { propertyId, guestName, guestPhone, guestEmail, roomsRequested, checkIn, checkOut, bookingType, reqType, paymentMethod } = req.body;
     const numRooms = Number(roomsRequested) || 1;
+
+    // Require phone OTP verification before creating a guest booking
+    const phoneVerified = await Otp.findOne({ identifier: guestPhone.trim(), purpose: 'GUEST_VERIFY', verified: true });
+    if (!phoneVerified) {
+      return res.status(403).json({ message: 'Phone number not verified. Please verify your phone number with the OTP before booking.' });
+    }
 
     const hotel = await Property.findById(propertyId);
     if (!hotel || hotel.status !== 'ACTIVE') {

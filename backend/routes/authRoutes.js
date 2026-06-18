@@ -6,6 +6,10 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const Property = require('../models/Property');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { logEvent } = require('../middleware/requestLogger');
+const { sendEmailOtp, verifyOtp } = require('../services/otpService');
+
+const RESET_TOKEN_EXPIRY = '15m'; // short-lived — only for the password reset flow
 
 const ACCESS_TOKEN_EXPIRY = '2h';
 const REFRESH_TOKEN_EXPIRY = '7d';
@@ -102,6 +106,9 @@ router.post('/login', [
 
     setRefreshCookie(res, refreshToken);
 
+    const ip = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()) || req.socket?.remoteAddress || 'unknown';
+    logEvent('INFO', `${user.name} (${user.role}) logged in`, { email: user.email, ip });
+
     res.status(200).json({
       message: 'Login successful',
       token: accessToken,
@@ -114,7 +121,10 @@ router.post('/login', [
         assignedProperty: user.assignedProperty,
         assignedPropertyName,
         hotelCount,
-        lastLogin: user.lastLogin
+        lastLogin: user.lastLogin,
+        isVerified:    user.isVerified    ?? true,
+        emailVerified: user.emailVerified ?? true,
+        phone:         user.phone || ''
       }
     });
 
@@ -253,8 +263,184 @@ router.get('/me', verifyToken, async (req, res) => {
       assignedPropertyName,
       hotelCount,
       lastLogin: user.lastLogin,
+      isVerified:    user.isVerified    ?? true,
+      emailVerified: user.emailVerified ?? true,
+      phone:         user.phone || ''
     });
   } catch {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// ACCOUNT VERIFICATION WALL
+// Used by newly created PROPERTY_OWNER and HOTEL_MANAGER accounts.
+// Step 1 — send email OTP:  POST /api/auth/verify-account/email/send
+// Step 2 — verify email:    POST /api/auth/verify-account/email/verify   { code }
+// Step 3 — send phone OTP:  POST /api/auth/verify-account/phone/send     { phone }
+// Step 4 — verify phone:    POST /api/auth/verify-account/phone/verify   { phone, code }
+// ==========================================
+
+router.post('/verify-account/email/send', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (user.isVerified) return res.json({ message: 'Account already verified.' });
+    await sendEmailOtp(user.email, 'EMAIL_VERIFY');
+    res.json({ message: `OTP sent to ${user.email}` });
+  } catch (err) {
+    console.error('Email OTP send error:', err);
+    res.status(500).json({ message: 'Failed to send OTP. Please try again.' });
+  }
+});
+
+router.post('/verify-account/email/verify', verifyToken, [
+  body('code').trim().isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (user.emailVerified) return res.json({ message: 'Email already verified.', emailVerified: true });
+    const result = await verifyOtp(user.email, 'EMAIL_VERIFY', req.body.code);
+    if (!result.ok) return res.status(400).json({ message: result.error });
+    user.emailVerified = true;
+    await user.save();
+    res.json({ message: 'Email verified.', emailVerified: true });
+  } catch (err) {
+    console.error('Email OTP verify error:', err);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+router.post('/verify-account/phone/send', verifyToken, [
+  body('phone').trim().matches(/^\+?[0-9]{7,15}$/).withMessage('Enter a valid phone number.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (!user.emailVerified) return res.status(400).json({ message: 'Please verify your email first.' });
+    const { phone } = req.body;
+    const { sendPhoneOtp } = require('../services/otpService');
+    await sendPhoneOtp(phone.trim(), 'SMS');
+    res.json({ message: `OTP sent to ${phone}` });
+  } catch (err) {
+    console.error('Phone OTP send error:', err);
+    res.status(500).json({ message: 'Failed to send OTP. Please try again.' });
+  }
+});
+
+router.post('/verify-account/phone/verify', verifyToken, [
+  body('phone').trim().matches(/^\+?[0-9]{7,15}$/).withMessage('Enter a valid phone number.'),
+  body('code').trim().isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (!user.emailVerified) return res.status(400).json({ message: 'Please verify your email first.' });
+    const { phone, code } = req.body;
+    const result = await verifyOtp(phone.trim(), 'GUEST_VERIFY', code);
+    if (!result.ok) return res.status(400).json({ message: result.error });
+    user.phone = phone.trim();
+    user.isVerified = true;
+    await user.save();
+    logEvent('INFO', `Account verified: ${user.name} (${user.role})`, { userId: user._id, email: user.email, phone });
+    res.json({ message: 'Account fully verified! Welcome to StayLite.', isVerified: true, phone: user.phone });
+  } catch (err) {
+    console.error('Phone OTP verify error:', err);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// POST /api/auth/forgot-password
+// Step 1: Send a 6-digit OTP to the user's registered email.
+// Body: { email }
+// ==========================================
+router.post('/forgot-password', [
+  body('email').isEmail().normalizeEmail().withMessage('A valid email is required.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    // Always return success to avoid user-enumeration
+    if (!user) return res.json({ message: 'If that email is registered, an OTP has been sent.' });
+    await sendEmailOtp(email, 'PASSWORD_RESET');
+    res.json({ message: 'If that email is registered, an OTP has been sent.' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ message: 'Failed to send OTP. Please try again.' });
+  }
+});
+
+// ==========================================
+// POST /api/auth/verify-reset-otp
+// Step 2: Verify the OTP and return a short-lived reset token.
+// Body: { email, code }
+// Returns: { resetToken } — valid 15 minutes, single-use
+// ==========================================
+router.post('/verify-reset-otp', [
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required.'),
+  body('code').trim().isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const { email, code } = req.body;
+    const result = await verifyOtp(email, 'PASSWORD_RESET', code);
+    if (!result.ok) return res.status(400).json({ message: result.error });
+    // Issue a short-lived JWT that only authorises a password reset
+    const resetToken = jwt.sign(
+      { email, purpose: 'PASSWORD_RESET' },
+      process.env.JWT_SECRET,
+      { expiresIn: RESET_TOKEN_EXPIRY }
+    );
+    res.json({ resetToken });
+  } catch (err) {
+    console.error('Verify reset OTP error:', err);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// POST /api/auth/reset-password
+// Step 3: Set a new password using the reset token from step 2.
+// Body: { resetToken, newPassword }
+// ==========================================
+router.post('/reset-password', [
+  body('resetToken').notEmpty().withMessage('Reset token is required.'),
+  body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters.')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
+  try {
+    const { resetToken, newPassword } = req.body;
+    let decoded;
+    try {
+      decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(400).json({ message: 'Reset link has expired. Please start over.' });
+    }
+    if (decoded.purpose !== 'PASSWORD_RESET') {
+      return res.status(400).json({ message: 'Invalid reset token.' });
+    }
+    const user = await User.findOne({ email: decoded.email });
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    user.refreshToken = null; // invalidate all existing sessions
+    await user.save();
+    logEvent('INFO', `Password reset for ${user.name} (${user.role})`, { email: user.email });
+    res.json({ message: 'Password updated successfully. Please sign in with your new password.' });
+  } catch (err) {
+    console.error('Reset password error:', err);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });

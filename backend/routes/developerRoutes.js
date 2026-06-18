@@ -10,6 +10,18 @@ const UploadToken = require('../models/UploadToken');
 const MaintenanceMode = require('../models/MaintenanceMode');
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 const { resetIP, getLimiterConfig } = require('../middleware/rateLimiters');
+const { logEvent } = require('../middleware/requestLogger');
+
+// --- Input-hardening helpers (defense in depth on the highest-trust console) ---
+// Escape user input before it is used inside a Mongoose $regex so a crafted
+// value can neither inject regex operators nor trigger ReDoS.
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Coerce a query param to a bounded integer; rejects NaN / objects / huge values.
+const clampInt = (val, def, min, max) => {
+  const n = Math.floor(Number(val));
+  if (!Number.isFinite(n)) return def;
+  return Math.min(Math.max(n, min), max);
+};
 
 // All developer routes require DEVELOPER role
 router.use(verifyToken, requireRole('DEVELOPER'));
@@ -35,11 +47,11 @@ router.get('/logs', async (req, res) => {
 
     const query = {};
 
-    if (type && type !== 'ALL') query.type = type;
-    if (method) query.method = method.toUpperCase();
-    if (route) query.route = { $regex: route, $options: 'i' };
-    if (ip) query.ip = { $regex: ip };
-    if (userId) query.userId = userId;
+    if (type && type !== 'ALL') query.type = String(type);
+    if (method) query.method = String(method).toUpperCase();
+    if (route) query.route = { $regex: escapeRegex(route), $options: 'i' };
+    if (ip) query.ip = { $regex: escapeRegex(ip) };
+    if (userId) query.userId = String(userId);
 
     if (statusCode) {
       if (statusCode === '4xx') query.statusCode = { $gte: 400, $lt: 500 };
@@ -58,16 +70,19 @@ router.get('/logs', async (req, res) => {
       }
     }
 
+    const safeLimit  = clampInt(limit, 50, 1, 200);
+    const safeOffset = clampInt(offset, 0, 0, 1_000_000);
+
     const [logs, total] = await Promise.all([
       Log.find(query)
         .sort({ createdAt: -1 })
-        .skip(Number(offset))
-        .limit(Math.min(Number(limit), 200))
+        .skip(safeOffset)
+        .limit(safeLimit)
         .lean(),
       Log.countDocuments(query)
     ]);
 
-    res.json({ logs, total, offset: Number(offset), limit: Number(limit) });
+    res.json({ logs, total, offset: safeOffset, limit: safeLimit });
   } catch (error) {
     console.error('Dev logs error:', error);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -80,8 +95,8 @@ router.get('/logs', async (req, res) => {
 // GET /api/developer/errors
 router.get('/errors', async (req, res) => {
   try {
-    const { hours = 24 } = req.query;
-    const since = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    const hours = clampInt(req.query.hours, 24, 1, 720); // max 30 days
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
     const [errors, warnings, errorsByRoute] = await Promise.all([
       Log.find({ type: 'ERROR', createdAt: { $gte: since } })
@@ -212,8 +227,8 @@ router.get('/stats/system', async (req, res) => {
 // GET /api/developer/stats/api
 router.get('/stats/api', async (req, res) => {
   try {
-    const { hours = 24 } = req.query;
-    const since = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    const hours = clampInt(req.query.hours, 24, 1, 720); // max 30 days
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
     const [
       totalRequests,
@@ -310,8 +325,8 @@ router.get('/stats/api', async (req, res) => {
 // GET /api/developer/stats/ratelimits
 router.get('/stats/ratelimits', async (req, res) => {
   try {
-    const { hours = 1 } = req.query;
-    const since = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
+    const hours = clampInt(req.query.hours, 1, 1, 720); // max 30 days
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
     // IPs that hit auth routes heavily (potential brute force)
     const authHits = await Log.aggregate([
@@ -345,8 +360,10 @@ router.get('/stats/ratelimits', async (req, res) => {
 // ==========================================
 // POST /api/developer/rate-limits/reset
 router.post('/rate-limits/reset', (req, res) => {
-  const { ip } = req.body;
-  if (!ip) return res.status(400).json({ message: 'IP address is required.' });
+  const ip = typeof req.body.ip === 'string' ? req.body.ip.trim() : '';
+  // Accept only plausible IPv4/IPv6 literals — never an object or arbitrary string.
+  const isValidIp = /^[0-9a-fA-F:.]{3,45}$/.test(ip);
+  if (!ip || !isValidIp) return res.status(400).json({ message: 'A valid IP address is required.' });
   resetIP(ip);
   res.json({ message: `Rate limit cleared for ${ip}. They can now make requests immediately.` });
 });
@@ -357,8 +374,8 @@ router.post('/rate-limits/reset', (req, res) => {
 // DELETE /api/developer/logs/purge?days=30
 router.delete('/logs/purge', async (req, res) => {
   try {
-    const { days = 30 } = req.query;
-    const cutoff = new Date(Date.now() - Number(days) * 24 * 60 * 60 * 1000);
+    const days = clampInt(req.query.days, 30, 1, 3650);
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const result = await Log.deleteMany({ createdAt: { $lt: cutoff } });
     res.json({ message: `Deleted ${result.deletedCount} log entries older than ${days} days.` });
   } catch (error) {
@@ -388,6 +405,26 @@ router.get('/users', async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(users);
   } catch (error) {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// 10a. APPROVE UNVERIFIED ACCOUNT (Developer override — skips OTP)
+// ==========================================
+// PATCH /api/developer/users/:id/approve
+router.patch('/users/:id/approve', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (user.isVerified) return res.json({ message: 'Account is already verified.' });
+    user.isVerified    = true;
+    user.emailVerified = true;
+    await user.save();
+    logEvent('INFO', `Account approved by Developer: ${user.name} (${user.role})`, { userId: user._id, email: user.email });
+    res.json({ message: `${user.name}'s account has been approved.` });
+  } catch (err) {
+    console.error('Approve user error:', err);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
@@ -657,18 +694,238 @@ router.patch('/maintenance', async (req, res) => {
     if (!m) m = new MaintenanceMode();
 
     if (isActive !== undefined) {
-      m.isActive = isActive;
-      if (isActive) m.activatedAt = new Date();
+      m.isActive = !!isActive; // coerce to a real boolean — never store arbitrary input
+      if (m.isActive) m.activatedAt = new Date();
     }
-    if (message !== undefined) m.message = message;
+    if (message !== undefined) m.message = String(message).slice(0, 500); // cap length
     if (scheduledStart !== undefined) m.scheduledStart = scheduledStart ? new Date(scheduledStart) : null;
     if (scheduledEnd   !== undefined) m.scheduledEnd   = scheduledEnd   ? new Date(scheduledEnd)   : null;
     m.setBy = req.user.userId;
     await m.save();
 
+    const actor = req.user?.email || req.user?.userId || 'Developer';
+    if (isActive !== undefined) {
+      logEvent('INFO',
+        `Maintenance mode ${m.isActive ? 'enabled' : 'disabled'} by ${actor}`,
+        { setBy: req.user?.userId, message: m.message || null }
+      );
+    }
     res.json({ message: `Maintenance mode ${m.isActive ? 'activated' : 'updated'}.`, maintenance: m });
   } catch (error) {
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// 21. EDIT USER PROFILE (name / email / role)
+// ==========================================
+// PATCH /api/developer/users/:id/profile
+router.patch('/users/:id/profile', async (req, res) => {
+  try {
+    const { name, email, role } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+    if (user.role === 'SUPER_ADMIN') return res.status(403).json({ message: 'Cannot edit Super Admin.' });
+
+    const ALLOWED_ROLES = ['PROPERTY_OWNER', 'HOTEL_MANAGER', 'DEVELOPER'];
+    if (role !== undefined && !ALLOWED_ROLES.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role.' });
+    }
+    if (name !== undefined) user.name = String(name).trim().slice(0, 100);
+    if (email !== undefined) {
+      const clean = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+        return res.status(400).json({ message: 'Invalid email format.' });
+      }
+      const dup = await User.findOne({ email: clean, _id: { $ne: user._id } });
+      if (dup) return res.status(409).json({ message: 'Email already in use.' });
+      user.email = clean;
+    }
+    if (role !== undefined) user.role = role;
+
+    const changes = [
+      name  !== undefined ? `name → "${user.name}"` : null,
+      email !== undefined ? `email → "${user.email}"` : null,
+      role  !== undefined ? `role → ${user.role}` : null,
+    ].filter(Boolean).join(', ');
+    await user.save();
+    logEvent('INFO',
+      `User profile updated: ${user.email} (${changes}) by ${req.user?.userId}`,
+      { targetUserId: user._id }
+    );
+    res.json({ message: 'User updated successfully.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// 22. DB BROWSER — list documents
+// ==========================================
+// GET /api/developer/db/browse/:collection
+const BROWSABLE = ['users', 'properties', 'bookings', 'logs', 'uploadtokens', 'maintenancemodes'];
+const DELETABLE_DB = ['logs', 'uploadtokens'];
+
+router.get('/db/browse/:collection', async (req, res) => {
+  try {
+    const col = String(req.params.collection).toLowerCase();
+    if (!BROWSABLE.includes(col)) {
+      return res.status(400).json({ message: 'Collection not available for browsing.' });
+    }
+
+    const limit  = clampInt(req.query.limit,  20, 1, 100);
+    const offset = clampInt(req.query.offset,   0, 0, 1_000_000);
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const collection = mongoose.connection.db.collection(col);
+    let query = {};
+
+    if (search) {
+      if (/^[a-f\d]{24}$/i.test(search)) {
+        query = { _id: new mongoose.Types.ObjectId(search) };
+      } else {
+        const re = { $regex: escapeRegex(search), $options: 'i' };
+        query = {
+          $or: [
+            { name: re }, { email: re }, { guestName: re },
+            { guestEmail: re }, { subject: re }, { route: re }, { message: re }
+          ]
+        };
+      }
+    }
+
+    const [documents, total] = await Promise.all([
+      collection.find(query).sort({ _id: -1 }).skip(offset).limit(limit).toArray(),
+      collection.countDocuments(query)
+    ]);
+
+    const safe = documents.map(doc => {
+      const d = { ...doc };
+      if (d.password)     d.password     = '[HIDDEN]';
+      if (d.refreshToken) d.refreshToken = '[HIDDEN]';
+      return d;
+    });
+
+    res.json({ documents: safe, total, offset, limit });
+  } catch (error) {
+    console.error('DB browse error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// DELETE /api/developer/db/:collection/:id
+router.delete('/db/:collection/:id', async (req, res) => {
+  try {
+    const col = String(req.params.collection).toLowerCase();
+    if (!DELETABLE_DB.includes(col)) {
+      return res.status(403).json({ message: 'Deletion not allowed for this collection.' });
+    }
+    if (!/^[a-f\d]{24}$/i.test(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid document ID.' });
+    }
+    const result = await mongoose.connection.db.collection(col)
+      .deleteOne({ _id: new mongoose.Types.ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ message: 'Document not found.' });
+    res.json({ message: 'Document deleted.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// 23. ENV VARIABLES (masked, read-only)
+// ==========================================
+// GET /api/developer/env
+router.get('/env', (req, res) => {
+  const MASK    = /secret|key|token|password|uri|auth|private|credential|salt/i;
+  const INCLUDE = /^(CF_|JWT|MONGO|FRONTEND|RAZORPAY|SMTP|PORT|NODE_ENV|DB_)/;
+
+  const vars = Object.entries(process.env)
+    .filter(([k]) => INCLUDE.test(k))
+    .map(([key, val]) => {
+      const sensitive = MASK.test(key);
+      let display = val || '(not set)';
+      if (sensitive && val && val.length > 4) {
+        display = val.slice(0, 4) + '*'.repeat(Math.min(val.length - 4, 20));
+      }
+      return { key, display, isSet: !!val, sensitive };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+  res.json({ vars, nodeEnv: process.env.NODE_ENV || 'development' });
+});
+
+// ==========================================
+// 24. SERVER RESTART (PM2 auto-restarts)
+// ==========================================
+// POST /api/developer/process/restart
+router.post('/process/restart', (req, res) => {
+  logEvent('INFO', `Server restart triggered by ${req.user?.email || req.user?.userId || 'Developer'}`);
+  res.json({ message: 'Server restarting… reconnect in ~3 seconds.' });
+  setTimeout(() => process.exit(0), 400);
+});
+
+// ==========================================
+// 25. R2 STORAGE — LIST FILES
+// ==========================================
+// GET /api/developer/storage/files
+router.get('/storage/files', async (req, res) => {
+  try {
+    const { isConfigured } = require('../utils/r2');
+    if (!isConfigured()) return res.json({ configured: false, files: [] });
+
+    const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: process.env.CF_R2_ACCESS_KEY_ID, secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY },
+    });
+
+    const limit = clampInt(req.query.limit, 50, 1, 200);
+    const page = await client.send(new ListObjectsV2Command({
+      Bucket: process.env.CF_R2_BUCKET_NAME,
+      MaxKeys: limit,
+      ContinuationToken: req.query.token || undefined,
+    }));
+
+    res.json({
+      configured: true,
+      files: (page.Contents || []).map(obj => ({
+        key: obj.Key, size: obj.Size, lastModified: obj.LastModified,
+      })),
+      nextToken:   page.IsTruncated ? page.NextContinuationToken : null,
+      isTruncated: !!page.IsTruncated,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'R2 listing failed: ' + error.message });
+  }
+});
+
+// ==========================================
+// 26. R2 STORAGE — DELETE FILE
+// ==========================================
+// DELETE /api/developer/storage/file
+router.delete('/storage/file', async (req, res) => {
+  try {
+    const { isConfigured } = require('../utils/r2');
+    if (!isConfigured()) return res.status(400).json({ message: 'R2 not configured.' });
+
+    const key = typeof req.body.key === 'string' ? req.body.key.trim() : '';
+    if (!key || key.includes('..') || key.startsWith('/')) {
+      return res.status(400).json({ message: 'Invalid file key.' });
+    }
+
+    const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: process.env.CF_R2_ACCESS_KEY_ID, secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY },
+    });
+
+    await client.send(new DeleteObjectCommand({ Bucket: process.env.CF_R2_BUCKET_NAME, Key: key }));
+    res.json({ message: `Deleted "${key}" from R2.` });
+  } catch (error) {
+    res.status(500).json({ message: 'R2 delete failed: ' + error.message });
   }
 });
 

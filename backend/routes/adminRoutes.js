@@ -33,13 +33,15 @@ router.post('/create-owner', verifyToken, requireRole('SUPER_ADMIN'), [
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create Owner
+    // Create Owner — starts unverified; must verify email + phone before using the platform
     const newOwner = new User({
       name,
       email,
       password: hashedPassword,
       role: 'PROPERTY_OWNER',
-      maxHotelsAllowed: maxHotelsAllowed || 1 
+      maxHotelsAllowed: maxHotelsAllowed || 1,
+      isVerified: false,
+      emailVerified: false
     });
 
     await newOwner.save();
