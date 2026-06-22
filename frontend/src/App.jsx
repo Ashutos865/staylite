@@ -21,6 +21,7 @@ import GuestPortal from './components/GuestPortal';
 import IDUploadPage from './components/IDUploadPage';
 import AccountVerification from './components/AccountVerification';
 import { InstallButton } from './components/InstallPWA';
+import UpdatePrompt from './components/UpdatePrompt';
 
 const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', '/inventory', '/summary', '/developer'];
 
@@ -357,6 +358,7 @@ function StaffPortal({ user, onLogout }) {
         </main>
       </div>
       <SupportWidget user={user} />
+      <UpdatePrompt />
     </div>
   );
 }
