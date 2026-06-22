@@ -26,6 +26,9 @@ const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', 
 
 // ── Theme context ─────────────────────────────────────────────────────────────
 export const ThemeContext = createContext({ dark: false, toggle: () => {} });
+
+// ── Branding context ──────────────────────────────────────────────────────────
+export const BrandingContext = createContext({ appName: 'StayLite', iconUrl: '' });
 const isStaffPath = () => STAFF_PATHS.some(p => window.location.pathname === p || window.location.pathname.startsWith(p + '/'));
 
 // Developer Console sections — rendered as grouped sub-nav in the main sidebar
@@ -57,6 +60,7 @@ const DEV_NAV = [
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 const Sidebar = ({ onLogout, user, isOpen, setIsOpen, devSection, setDevSection }) => {
   const location = useLocation();
+  const { appName, iconUrl } = useContext(BrandingContext);
 
   const navItems = [
     { name: 'Admin Panel',    path: '/admin',      icon: ShieldCheck,   allowedRoles: ['SUPER_ADMIN'] },
@@ -91,10 +95,14 @@ const Sidebar = ({ onLogout, user, isOpen, setIsOpen, devSection, setDevSection 
         {/* Logo */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Hotel className="w-4 h-4 text-white" />
+            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center overflow-hidden">
+              {iconUrl ? (
+                <img src={iconUrl} alt={appName} className="w-full h-full object-cover" />
+              ) : (
+                <Hotel className="w-4 h-4 text-white" />
+              )}
             </div>
-            <span className="text-white font-bold tracking-tight">StayLite</span>
+            <span className="text-white font-bold tracking-tight">{appName}</span>
           </div>
           <button onClick={() => setIsOpen(false)} className="lg:hidden text-slate-400 hover:text-white p-1 rounded-lg transition">
             <X className="w-4 h-4" />
@@ -439,12 +447,32 @@ export default function App() {
   const [maintenance, setMaintenance]     = useState(null);
   const [suspendedInfo, setSuspendedInfo] = useState(null);
   const [darkMode, setDarkMode]           = useState(() => localStorage.getItem('staylite_dark') === 'true');
+  const [branding, setBranding]           = useState({ appName: 'StayLite', iconUrl: '' });
 
   // Apply / remove dark class on <html> whenever darkMode changes
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     localStorage.setItem('staylite_dark', String(darkMode));
   }, [darkMode]);
+
+  // Fetch app branding on mount
+  useEffect(() => {
+    const fetchBranding = async () => {
+      try {
+        const res = await fetch('/api/public/app-config');
+        if (res.ok) {
+          const data = await res.json();
+          setBranding({ appName: data.appName || 'StayLite', iconUrl: data.iconUrl || '' });
+          if (data.appName) document.title = data.appName;
+          if (data.iconUrl) {
+            const link = document.querySelector('link[rel="icon"]');
+            if (link) link.href = data.iconUrl;
+          }
+        }
+      } catch { /* silent — fall back to defaults */ }
+    };
+    fetchBranding();
+  }, []);
 
   const toggleDark = () => setDarkMode(d => !d);
 
@@ -528,12 +556,14 @@ export default function App() {
   // Public guest portal
   if (!isStaffPath()) {
     return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="/upload-id/:token" element={<IDUploadPage />} />
-          <Route path="*" element={<GuestPortal />} />
-        </Routes>
-      </BrowserRouter>
+      <BrandingContext.Provider value={branding}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/upload-id/:token" element={<IDUploadPage />} />
+            <Route path="*" element={<GuestPortal />} />
+          </Routes>
+        </BrowserRouter>
+      </BrandingContext.Provider>
     );
   }
 
@@ -565,13 +595,15 @@ export default function App() {
   // SUPER_ADMIN and DEVELOPER are always allowed through (isVerified defaults to true for them).
   if (!user.isVerified && ['PROPERTY_OWNER', 'HOTEL_MANAGER'].includes(user.role)) {
     return (
-      <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
-        <AccountVerification
-          user={user}
-          onVerified={(updatedUser) => setUser(updatedUser)}
-          onLogout={handleLogout}
-        />
-      </ThemeContext.Provider>
+      <BrandingContext.Provider value={branding}>
+        <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
+          <AccountVerification
+            user={user}
+            onVerified={(updatedUser) => setUser(updatedUser)}
+            onLogout={handleLogout}
+          />
+        </ThemeContext.Provider>
+      </BrandingContext.Provider>
     );
   }
 
@@ -583,10 +615,12 @@ export default function App() {
   }
 
   return (
-    <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
-      <BrowserRouter>
-        <StaffPortal user={user} onLogout={handleLogout} />
-      </BrowserRouter>
-    </ThemeContext.Provider>
+    <BrandingContext.Provider value={branding}>
+      <ThemeContext.Provider value={{ dark: darkMode, toggle: toggleDark }}>
+        <BrowserRouter>
+          <StaffPortal user={user} onLogout={handleLogout} />
+        </BrowserRouter>
+      </ThemeContext.Provider>
+    </BrandingContext.Provider>
   );
 }

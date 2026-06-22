@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useContext } from 'react';
 import {
   Activity, AlertTriangle, AlertCircle, CheckCircle, Database, Server,
   Cpu, HardDrive, Globe, Monitor, Smartphone, Tablet, Bot, Clock,
@@ -6,10 +6,12 @@ import {
   BarChart3, TrendingUp, Wifi, Shield, Terminal, Search, Unlock, X,
   Users, Building2, PauseCircle, PlayCircle, UserX, KeyRound, LogOut,
   AlertOctagon, Wrench, HelpCircle, Send, MessageSquare,
-  Edit2, Eye, EyeOff, Package, RotateCcw, FolderOpen, Image, Trash
+  Edit2, Eye, EyeOff, Package, RotateCcw, FolderOpen, Image, Trash,
+  Palette, Upload
 } from 'lucide-react';
 
 import { getToken } from '../utils/api';
+import { BrandingContext } from '../App.jsx';
 
 const API        = '/api/developer';
 const SUPPORT_API = '/api/support';
@@ -210,6 +212,13 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
   // Server restart state
   const [restartLoading, setRestartLoading] = useState(false);
   const [restartStatus, setRestartStatus] = useState(null);
+
+  // Branding state
+  const { appName: ctxAppName, iconUrl: ctxIconUrl } = useContext(BrandingContext);
+  const [brandingName, setBrandingName] = useState('');
+  const [brandingIconFile, setBrandingIconFile] = useState(null);
+  const [brandingPreview, setBrandingPreview] = useState('');
+  const [brandingStatus, setBrandingStatus] = useState(null);
 
   // ── fetchers ───────────────────────────────────────────────────────────────
   const fetchOverview = useCallback(async () => {
@@ -448,6 +457,12 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
 
   useEffect(() => { refresh(); }, [tab]);
 
+  // Seed branding form from context
+  useEffect(() => {
+    setBrandingName(ctxAppName || 'StayLite');
+    setBrandingPreview(ctxIconUrl || '');
+  }, [ctxAppName, ctxIconUrl]);
+
   // Auto-refresh every 30s
   useEffect(() => {
     const id = setInterval(() => { if (!loading) refresh(); }, 30000);
@@ -531,6 +546,33 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
     const d = await safeJson(res);
     if (!res.ok) throw new Error(d.message);
     return d.message;
+  };
+
+  const handleBrandingSave = async (e) => {
+    e.preventDefault();
+    setBrandingStatus({ type: 'loading', msg: 'Saving branding…' });
+    try {
+      const fd = new FormData();
+      if (brandingName.trim()) fd.append('appName', brandingName.trim());
+      if (brandingIconFile) fd.append('iconFile', brandingIconFile);
+
+      const res = await fetch(`${API}/branding`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token()}` },
+        body: fd,
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setBrandingStatus({ type: 'success', msg: d.message });
+        if (d.iconUrl) setBrandingPreview(d.iconUrl);
+        setBrandingIconFile(null);
+      } else {
+        setBrandingStatus({ type: 'error', msg: d.message });
+      }
+    } catch {
+      setBrandingStatus({ type: 'error', msg: 'Connection failed.' });
+    }
+    setTimeout(() => setBrandingStatus(null), 5000);
   };
 
   const errorCount = errors.errors?.length ?? 0;
@@ -1365,6 +1407,70 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
                   {maintForm.isActive ? 'Activate Maintenance Mode' : 'Save / Deactivate'}
                 </button>
               </div>
+
+              {/* ── APP BRANDING ── */}
+              <div className="col-span-1 sm:col-span-2 bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                  <Palette className="w-3.5 h-3.5 text-indigo-500" /> App Branding
+                </h3>
+
+                {brandingStatus && (
+                  <div className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium ${brandingStatus.type === 'success' ? 'bg-green-50 text-green-700' : brandingStatus.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                    {brandingStatus.type === 'success' ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : brandingStatus.type === 'loading' ? <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" /> : <X className="w-3.5 h-3.5 shrink-0" />}
+                    {brandingStatus.msg}
+                  </div>
+                )}
+
+                <form onSubmit={handleBrandingSave} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">App Name</label>
+                    <input
+                      type="text"
+                      value={brandingName}
+                      onChange={e => setBrandingName(e.target.value)}
+                      placeholder="e.g. StayLite"
+                      maxLength={60}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">App Icon</label>
+                    {brandingPreview && (
+                      <div className="flex items-center gap-2">
+                        <img src={brandingPreview} alt="Icon preview" className="w-10 h-10 rounded-lg object-cover border border-gray-200" />
+                        <span className="text-[10px] text-gray-400">Current icon</span>
+                      </div>
+                    )}
+                    <label className="flex items-center gap-2 cursor-pointer px-3 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-400 transition-colors text-xs text-gray-500">
+                      <Upload className="w-3.5 h-3.5 shrink-0" />
+                      <span>{brandingIconFile ? brandingIconFile.name : 'Choose image (max 2 MB)'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                          const f = e.target.files?.[0];
+                          if (f) {
+                            setBrandingIconFile(f);
+                            setBrandingPreview(URL.createObjectURL(f));
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={brandingStatus?.type === 'loading'}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition"
+                  >
+                    {brandingStatus?.type === 'loading' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Palette className="w-3.5 h-3.5" />}
+                    Save Branding
+                  </button>
+                </form>
+              </div>
+
             </div>
           )}
 

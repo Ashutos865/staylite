@@ -1,10 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const path = require('path');
+const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
+const AppConfig = require('../models/AppConfig');
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 const { resetIP } = require('../middleware/rateLimiters');
+const { uploadToR2, isConfigured: r2IsConfigured } = require('../utils/r2');
+
+const iconUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /image\//.test(file.mimetype);
+    cb(ok ? null : new Error('Only image files are allowed.'), ok);
+  },
+});
 
 // ==========================================
 // 1. CREATE PROPERTY OWNER (Super Admin Only)
@@ -301,6 +314,41 @@ router.post('/rate-limits/reset', verifyToken, requireRole('SUPER_ADMIN'), (req,
   if (!ip) return res.status(400).json({ message: 'IP address is required.' });
   resetIP(ip);
   res.json({ message: `Rate limit cleared for ${ip}. They can now log in immediately.` });
+});
+
+// ==========================================
+// 6. APP BRANDING (Super Admin Only)
+// ==========================================
+// POST /api/admin/branding
+router.post('/branding', verifyToken, requireRole('SUPER_ADMIN'), iconUpload.single('iconFile'), async (req, res) => {
+  try {
+    const { appName } = req.body;
+    const updates = {};
+
+    if (appName && appName.trim()) {
+      updates.appName = appName.trim().slice(0, 60);
+    }
+
+    if (req.file) {
+      if (!r2IsConfigured()) {
+        return res.status(503).json({ message: 'File storage not configured. Add CF_R2_* keys to .env' });
+      }
+      const fileUrl = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
+      updates.iconUrl = fileUrl;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'Nothing to update. Provide appName or iconFile.' });
+    }
+
+    updates.updatedBy = req.user?.userId || '';
+
+    const config = await AppConfig.findOneAndUpdate({}, updates, { upsert: true, new: true });
+    res.json({ message: 'Branding updated.', appName: config.appName, iconUrl: config.iconUrl });
+  } catch (error) {
+    console.error('Branding update error:', error);
+    res.status(500).json({ message: error.message || 'Internal Server Error' });
+  }
 });
 
 module.exports = router;

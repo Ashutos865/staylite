@@ -9,6 +9,7 @@ const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const UploadToken = require('../models/UploadToken');
 const Otp = require('../models/Otp');
+const AppConfig = require('../models/AppConfig');
 const { uploadToR2, isConfigured } = require('../utils/r2');
 
 // Multer memory storage for ID proof uploads
@@ -588,6 +589,61 @@ router.get('/upload-status/:token', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to check status.' });
+  }
+});
+
+// ==========================================
+// APP CONFIG — branding info (public)
+// ==========================================
+// GET /api/public/app-config
+router.get('/app-config', async (req, res) => {
+  try {
+    let config = await AppConfig.findOne();
+    if (!config) {
+      config = await AppConfig.create({});
+    }
+    res.json({ appName: config.appName || 'StayLite', iconUrl: config.iconUrl || '' });
+  } catch (error) {
+    console.error('App config fetch error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// ==========================================
+// DYNAMIC PWA MANIFEST
+// ==========================================
+// GET /api/public/manifest
+router.get('/manifest', async (req, res) => {
+  try {
+    let config = await AppConfig.findOne();
+    if (!config) config = await AppConfig.create({});
+
+    const appName = config.appName || 'StayLite';
+    const iconUrl = config.iconUrl || '';
+    const iconSrc = iconUrl || '/favicon.svg';
+    const maskSrc = iconUrl || '/icons.svg';
+
+    const manifest = {
+      name: `${appName} – Hotel Management`,
+      short_name: appName,
+      description: `Manage your hotel properties, bookings, and guests with ${appName}.`,
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#f8fafc',
+      theme_color: '#2563eb',
+      orientation: 'portrait',
+      icons: [
+        { src: iconSrc, sizes: 'any', type: iconUrl ? 'image/png' : 'image/svg+xml', purpose: 'any' },
+        { src: maskSrc, sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+      ],
+    };
+
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(manifest);
+  } catch (error) {
+    console.error('Manifest error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 

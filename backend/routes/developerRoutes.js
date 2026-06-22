@@ -2,15 +2,27 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const os = require('os');
+const path = require('path');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const Log = require('../models/Log');
 const User = require('../models/User');
 const Property = require('../models/Property');
 const UploadToken = require('../models/UploadToken');
 const MaintenanceMode = require('../models/MaintenanceMode');
+const AppConfig = require('../models/AppConfig');
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 const { resetIP, getLimiterConfig } = require('../middleware/rateLimiters');
 const { logEvent } = require('../middleware/requestLogger');
+
+const iconUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /image\//.test(file.mimetype);
+    cb(ok ? null : new Error('Only image files are allowed.'), ok);
+  },
+});
 
 // --- Input-hardening helpers (defense in depth on the highest-trust console) ---
 // Escape user input before it is used inside a Mongoose $regex so a crafted
@@ -1029,6 +1041,42 @@ router.get('/guest-search', async (req, res) => {
     res.json({ results });
   } catch (error) {
     res.status(500).json({ message: 'Guest search failed: ' + error.message });
+  }
+});
+
+// ==========================================
+// 28. APP BRANDING (Developer access)
+// ==========================================
+// POST /api/developer/branding
+router.post('/branding', iconUpload.single('iconFile'), async (req, res) => {
+  try {
+    const { appName } = req.body;
+    const updates = {};
+
+    if (appName && appName.trim()) {
+      updates.appName = appName.trim().slice(0, 60);
+    }
+
+    if (req.file) {
+      const { isConfigured: r2IsConfigured, uploadToR2 } = require('../utils/r2');
+      if (!r2IsConfigured()) {
+        return res.status(503).json({ message: 'File storage not configured. Add CF_R2_* keys to .env' });
+      }
+      const fileUrl = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
+      updates.iconUrl = fileUrl;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'Nothing to update. Provide appName or iconFile.' });
+    }
+
+    updates.updatedBy = req.user?.userId || '';
+
+    const config = await AppConfig.findOneAndUpdate({}, updates, { upsert: true, new: true });
+    res.json({ message: 'Branding updated.', appName: config.appName, iconUrl: config.iconUrl });
+  } catch (error) {
+    console.error('Branding update error:', error);
+    res.status(500).json({ message: error.message || 'Internal Server Error' });
   }
 });
 

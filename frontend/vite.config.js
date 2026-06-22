@@ -10,30 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons.svg', 'hero.png'],
-      manifest: {
-        name: 'StayLite – Hotel Management',
-        short_name: 'StayLite',
-        description: 'Manage your hotel properties, bookings, and guests with StayLite.',
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#f8fafc',
-        theme_color: '#2563eb',
-        orientation: 'portrait',
-        icons: [
-          {
-            src: '/favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any',
-          },
-          {
-            src: '/icons.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'maskable',
-          },
-        ],
-      },
+      manifest: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         runtimeCaching: [

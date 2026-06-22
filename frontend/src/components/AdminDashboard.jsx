@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import {
   Shield, UserPlus, Building2, Mail, Lock, Users, Activity, Globe, Search,
   Calendar, Filter, IndianRupee, Loader2, Terminal, CheckCircle, Edit2,
-  Trash2, AlertTriangle, X, Eye, EyeOff, PauseCircle, PlayCircle, RefreshCw
+  Trash2, AlertTriangle, X, Eye, EyeOff, PauseCircle, PlayCircle, RefreshCw,
+  Palette, Image, Upload
 } from 'lucide-react';
 
 import { API, authHeaders as authHeader, STATUS_BADGE } from '../utils/api.js';
+import { BrandingContext } from '../App.jsx';
 
 // ── Shared UI primitives ──────────────────────────────────────────────────────
 function Modal({ title, onClose, children }) {
@@ -120,6 +122,19 @@ function CardHeader({ title, icon: Icon, badge, action }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('TENANTS');
+  const { appName: ctxAppName, iconUrl: ctxIconUrl } = useContext(BrandingContext);
+
+  // ── Branding state ────────────────────────────────────────────────────────
+  const [brandingName, setBrandingName] = useState('');
+  const [brandingIconFile, setBrandingIconFile] = useState(null);
+  const [brandingPreview, setBrandingPreview] = useState('');
+  const [brandingStatus, setBrandingStatus] = useState({ type: '', message: '' });
+
+  // Seed form from context once loaded
+  useEffect(() => {
+    setBrandingName(ctxAppName || 'StayLite');
+    setBrandingPreview(ctxIconUrl || '');
+  }, [ctxAppName, ctxIconUrl]);
 
   const [formData, setFormData]     = useState({ name: '', email: '', password: '', maxHotelsAllowed: 1 });
   const [createStatus, setCreateStatus] = useState({ type: '', message: '' });
@@ -286,6 +301,30 @@ export default function AdminDashboard() {
     } catch { setEditDevStatus({ type: 'error', message: 'Connection failed.' }); }
   };
 
+  const handleBrandingSave = async (e) => {
+    e.preventDefault();
+    setBrandingStatus({ type: 'loading', message: 'Saving branding…' });
+    try {
+      const fd = new FormData();
+      if (brandingName.trim()) fd.append('appName', brandingName.trim());
+      if (brandingIconFile) fd.append('iconFile', brandingIconFile);
+
+      const headers = authHeader();
+      delete headers['Content-Type']; // let browser set multipart boundary
+      const res = await fetch(`${API}/admin/branding`, { method: 'POST', headers, body: fd });
+      const d = await res.json();
+      if (res.ok) {
+        setBrandingStatus({ type: 'success', message: d.message });
+        if (d.iconUrl) setBrandingPreview(d.iconUrl);
+        setBrandingIconFile(null);
+      } else {
+        setBrandingStatus({ type: 'error', message: d.message });
+      }
+    } catch {
+      setBrandingStatus({ type: 'error', message: 'Connection failed.' });
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-5 sm:p-8 max-w-7xl">
@@ -306,6 +345,7 @@ export default function AdminDashboard() {
         <Tab id="TENANTS"    icon={Users}    label="Tenant Management"  activeTab={activeTab} setActiveTab={setActiveTab} />
         <Tab id="BOOKINGS"   icon={Globe}    label="Global Bookings"    activeTab={activeTab} setActiveTab={setActiveTab} />
         <Tab id="DEVELOPERS" icon={Terminal} label="Developer Accounts" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Tab id="BRANDING"   icon={Palette}  label="App Branding"       activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
       {/* ── TENANTS ── */}
@@ -595,6 +635,68 @@ export default function AdminDashboard() {
               </div>
             </Card>
           </div>
+        </div>
+      )}
+
+      {/* ── BRANDING ── */}
+      {activeTab === 'BRANDING' && (
+        <div className="max-w-lg">
+          <Card>
+            <CardHeader title="App Branding" icon={Palette} />
+            <form onSubmit={handleBrandingSave} className="p-5 space-y-5">
+              <StatusMsg s={brandingStatus} />
+
+              <FormField label="App Name">
+                <Input
+                  type="text"
+                  value={brandingName}
+                  onChange={e => setBrandingName(e.target.value)}
+                  placeholder="e.g. StayLite"
+                  maxLength={60}
+                />
+              </FormField>
+
+              <FormField label="App Icon">
+                <div className="space-y-3">
+                  {brandingPreview && (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={brandingPreview}
+                        alt="Current icon"
+                        className="w-12 h-12 rounded-xl object-cover border border-gray-200"
+                      />
+                      <p className="text-xs text-gray-500">Current icon</p>
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 cursor-pointer px-4 py-2.5 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-400 transition-colors text-sm text-gray-500">
+                    <Upload className="w-4 h-4 shrink-0" />
+                    <span>{brandingIconFile ? brandingIconFile.name : 'Choose image (max 2 MB)'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          setBrandingIconFile(f);
+                          setBrandingPreview(URL.createObjectURL(f));
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </FormField>
+
+              <button
+                type="submit"
+                disabled={brandingStatus.type === 'loading'}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                {brandingStatus.type === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
+                Save Branding
+              </button>
+            </form>
+          </Card>
         </div>
       )}
 
