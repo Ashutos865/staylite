@@ -322,7 +322,7 @@ router.post('/rate-limits/reset', verifyToken, requireRole('SUPER_ADMIN'), (req,
 // POST /api/admin/branding
 router.post('/branding', verifyToken, requireRole('SUPER_ADMIN'), iconUpload.single('iconFile'), async (req, res) => {
   try {
-    const { appName } = req.body;
+    const { appName, iconUrl: iconUrlField } = req.body;
     const updates = {};
 
     if (appName && appName.trim()) {
@@ -331,14 +331,16 @@ router.post('/branding', verifyToken, requireRole('SUPER_ADMIN'), iconUpload.sin
 
     if (req.file) {
       if (!r2IsConfigured()) {
-        return res.status(503).json({ message: 'File storage not configured. Add CF_R2_* keys to .env' });
+        return res.status(503).json({ message: 'R2 file storage is not configured. Paste an image URL instead.' });
       }
       const fileUrl = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
       updates.iconUrl = fileUrl;
+    } else if (iconUrlField && iconUrlField.trim().startsWith('http')) {
+      updates.iconUrl = iconUrlField.trim();
     }
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ message: 'Nothing to update. Provide appName or iconFile.' });
+      return res.status(400).json({ message: 'Nothing to update. Provide appName or an icon.' });
     }
 
     updates.updatedBy = req.user?.userId || '';

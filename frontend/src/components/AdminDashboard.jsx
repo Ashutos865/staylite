@@ -127,6 +127,7 @@ export default function AdminDashboard() {
   // ── Branding state ────────────────────────────────────────────────────────
   const [brandingName, setBrandingName] = useState('');
   const [brandingIconFile, setBrandingIconFile] = useState(null);
+  const [brandingIconUrl, setBrandingIconUrl] = useState('');
   const [brandingPreview, setBrandingPreview] = useState('');
   const [brandingStatus, setBrandingStatus] = useState({ type: '', message: '' });
 
@@ -308,20 +309,22 @@ export default function AdminDashboard() {
       const fd = new FormData();
       if (brandingName.trim()) fd.append('appName', brandingName.trim());
       if (brandingIconFile) fd.append('iconFile', brandingIconFile);
+      else if (brandingIconUrl.trim().startsWith('http')) fd.append('iconUrl', brandingIconUrl.trim());
 
       const headers = authHeader();
       delete headers['Content-Type']; // let browser set multipart boundary
       const res = await fetch(`${API}/admin/branding`, { method: 'POST', headers, body: fd });
-      const d = await res.json();
+      const ct = res.headers.get('content-type') || '';
+      const d = ct.includes('application/json') ? await res.json() : { message: `Server error (${res.status})` };
       if (res.ok) {
         setBrandingStatus({ type: 'success', message: d.message });
-        if (d.iconUrl) setBrandingPreview(d.iconUrl);
+        if (d.iconUrl) { setBrandingPreview(d.iconUrl); setBrandingIconUrl(''); }
         setBrandingIconFile(null);
       } else {
         setBrandingStatus({ type: 'error', message: d.message });
       }
-    } catch {
-      setBrandingStatus({ type: 'error', message: 'Connection failed.' });
+    } catch (err) {
+      setBrandingStatus({ type: 'error', message: err.message || 'Connection failed. Is the backend running?' });
     }
   };
 
@@ -660,30 +663,35 @@ export default function AdminDashboard() {
                 <div className="space-y-3">
                   {brandingPreview && (
                     <div className="flex items-center gap-3">
-                      <img
-                        src={brandingPreview}
-                        alt="Current icon"
-                        className="w-12 h-12 rounded-xl object-cover border border-gray-200"
-                      />
-                      <p className="text-xs text-gray-500">Current icon</p>
+                      <img src={brandingPreview} alt="icon preview"
+                        className="w-12 h-12 rounded-xl object-cover border border-gray-200" />
+                      <button type="button" onClick={() => { setBrandingPreview(''); setBrandingIconFile(null); setBrandingIconUrl(''); }}
+                        className="text-xs text-red-500 hover:underline">Remove</button>
                     </div>
                   )}
                   <label className="flex items-center gap-2 cursor-pointer px-4 py-2.5 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-400 transition-colors text-sm text-gray-500">
                     <Upload className="w-4 h-4 shrink-0" />
-                    <span>{brandingIconFile ? brandingIconFile.name : 'Choose image (max 2 MB)'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
+                    <span>{brandingIconFile ? brandingIconFile.name : 'Upload image (requires R2 storage)'}</span>
+                    <input type="file" accept="image/*" className="hidden"
                       onChange={e => {
                         const f = e.target.files?.[0];
-                        if (f) {
-                          setBrandingIconFile(f);
-                          setBrandingPreview(URL.createObjectURL(f));
-                        }
-                      }}
-                    />
+                        if (f) { setBrandingIconFile(f); setBrandingIconUrl(''); setBrandingPreview(URL.createObjectURL(f)); }
+                      }} />
                   </label>
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <div className="flex-1 h-px bg-gray-200" /> or <div className="flex-1 h-px bg-gray-200" />
+                  </div>
+                  <Input
+                    type="url"
+                    placeholder="Paste image URL (https://...)"
+                    value={brandingIconUrl}
+                    onChange={e => {
+                      setBrandingIconUrl(e.target.value);
+                      setBrandingIconFile(null);
+                      if (e.target.value.startsWith('http')) setBrandingPreview(e.target.value);
+                    }}
+                  />
+                  <p className="text-[11px] text-gray-400">Use a URL if R2 storage is not configured.</p>
                 </div>
               </FormField>
 
