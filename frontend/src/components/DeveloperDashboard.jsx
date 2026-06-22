@@ -196,6 +196,11 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
   const [envVars, setEnvVars] = useState(null);
   const [envRevealAll, setEnvRevealAll] = useState(false);
 
+  // Guest search state
+  const [guestQuery, setGuestQuery] = useState('');
+  const [guestResults, setGuestResults] = useState(null); // null = not searched yet
+  const [guestLoading, setGuestLoading] = useState(false);
+
   // R2 file browser state
   const [r2Files, setR2Files] = useState([]);
   const [r2FilesLoading, setR2FilesLoading] = useState(false);
@@ -541,6 +546,7 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
     { group: 'Infrastructure',  t: 'ENV',        Icon: Package,       label: 'Env Vars'         },
     { group: 'Data',            t: 'DB_BROWSE',  Icon: FolderOpen,    label: 'DB Browse'        },
     { group: 'Management',      t: 'USERS',      Icon: Users,         label: 'Users'            },
+    { group: 'Management',      t: 'GUESTS',     Icon: UserX,         label: 'Guests'           },
     { group: 'Management',      t: 'ACCESS',     Icon: Building2,     label: 'Hotels'           },
     { group: 'Operations',      t: 'CLEANUP',    Icon: Wrench,        label: 'Cleanup'          },
     { group: 'Operations',      t: 'SUPPORT',    Icon: HelpCircle,    label: 'Support',   badge: tickets.filter(x => x.status === 'OPEN' || x.status === 'IN_PROGRESS').length },
@@ -998,22 +1004,35 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
                         <table className="w-full text-xs border-collapse">
                           <thead>
                             <tr className="bg-gray-50 text-gray-400 text-[10px] uppercase tracking-wider border-b border-gray-100">
+                              <th className="px-4 py-2.5 text-left">Guest</th>
+                              <th className="px-4 py-2.5 text-left">Hotel</th>
                               <th className="px-4 py-2.5 text-left">File Key</th>
                               <th className="px-4 py-2.5 text-right">Size</th>
-                              <th className="px-4 py-2.5 text-right">Last Modified</th>
+                              <th className="px-4 py-2.5 text-right">Uploaded</th>
                               <th className="px-4 py-2.5 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-50">
                             {r2Files.map((f, i) => (
                               <tr key={i} className="hover:bg-gray-50">
-                                <td className="px-4 py-2.5 font-mono text-gray-700 truncate max-w-xs">{f.key}</td>
+                                <td className="px-4 py-2.5">
+                                  {f.guest ? (
+                                    <div>
+                                      <p className="font-semibold text-gray-800">{f.guest.name}</p>
+                                      <p className="text-[10px] text-gray-400">{f.guest.phone}{f.guest.email ? ` · ${f.guest.email}` : ''}</p>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-400 italic">Unknown</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-gray-600">{f.guest?.hotel || '—'}</td>
+                                <td className="px-4 py-2.5 font-mono text-gray-400 truncate max-w-[160px]" title={f.key}>{f.key}</td>
                                 <td className="px-4 py-2.5 text-right text-gray-500">{fmtBytes(f.size)}</td>
                                 <td className="px-4 py-2.5 text-right text-gray-400">{f.lastModified ? new Date(f.lastModified).toLocaleDateString() : '—'}</td>
                                 <td className="px-4 py-2.5 text-right">
                                   <div className="flex items-center gap-1.5 justify-end">
-                                    {process.env.CF_R2_PUBLIC_URL && (
-                                      <a href={`${process.env.CF_R2_PUBLIC_URL}/${f.key}`} target="_blank" rel="noreferrer"
+                                    {f.url && (
+                                      <a href={f.url} target="_blank" rel="noreferrer"
                                         className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-600 rounded text-[10px] font-bold hover:bg-blue-100 transition">
                                         <Eye className="w-2.5 h-2.5" /> View
                                       </a>
@@ -1540,6 +1559,11 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── GUESTS ────────────────────────────────────────────────── */}
+          {tab === 'GUESTS' && (
+            <GuestSearch />
           )}
 
           {/* ── CLEANUP ───────────────────────────────────────────────── */}
@@ -2119,6 +2143,145 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
+
+function GuestSearch() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState(null); // null = not searched yet
+  const [loading, setLoading] = useState(false);
+
+  // Debounce ref
+  const debounceRef = useState(null);
+
+  const runSearch = useCallback(async (q) => {
+    const trimmed = (q || '').trim();
+    if (trimmed.length < 3) { setResults(null); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/guest-search?q=${encodeURIComponent(trimmed)}`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResults(data.results);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    if (debounceRef[0]) clearTimeout(debounceRef[0]);
+    debounceRef[0] = setTimeout(() => runSearch(val), 500);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      if (debounceRef[0]) clearTimeout(debounceRef[0]);
+      runSearch(query);
+    }
+  };
+
+  const statusColor = {
+    CONFIRMED:  'bg-green-100 text-green-700',
+    CHECKED_IN: 'bg-blue-100 text-blue-700',
+    CHECKED_OUT:'bg-gray-100 text-gray-600',
+    CANCELLED:  'bg-red-100 text-red-700',
+    PENDING:    'bg-yellow-100 text-yellow-700',
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-400">Search hotel guests by name or phone number across all properties.</p>
+
+      {/* Search input */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={query}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder="Search by name or phone…"
+          className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-violet-400 bg-white"
+        />
+        {loading && (
+          <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+        )}
+      </div>
+
+      {/* States */}
+      {!loading && results === null && (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          Search by guest name or phone number
+        </div>
+      )}
+
+      {!loading && results !== null && results.length === 0 && (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          No guests found for &lsquo;{query}&rsquo;
+        </div>
+      )}
+
+      {/* Results grid */}
+      {results !== null && results.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {results.map((g, i) => (
+            <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-2.5">
+              {/* Name + contact */}
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-bold text-gray-900 text-sm leading-tight">{g.guestName}</p>
+                  {g.documentUrls && g.documentUrls.length > 1 && (
+                    <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-bold">
+                      {g.documentUrls.length} docs
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">{g.guestPhone || '—'}</p>
+                {g.guestEmail && <p className="text-xs text-gray-400">{g.guestEmail}</p>}
+              </div>
+
+              {/* Hotels */}
+              {g.hotels.length > 0 && (
+                <p className="text-[11px] text-gray-500">
+                  <span className="font-semibold text-gray-600">Hotels: </span>
+                  {g.hotels.join(', ')}
+                </p>
+              )}
+
+              {/* Booking count + latest status */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-gray-500">
+                  {g.totalBookings} booking{g.totalBookings !== 1 ? 's' : ''}
+                </span>
+                {g.latestBooking?.status && (
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${statusColor[g.latestBooking.status] || 'bg-gray-100 text-gray-600'}`}>
+                    {g.latestBooking.status.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+
+              {/* View ID button */}
+              {g.documentUrl && (
+                <a
+                  href={g.documentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-600 rounded-lg text-[11px] font-bold hover:bg-blue-100 transition w-fit"
+                >
+                  <Eye className="w-3 h-3" /> View ID
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ErrorCard({ log, type }) {
   const [expanded, setExpanded] = useState(false);

@@ -3,8 +3,9 @@ import {
   Search, MapPin, Calendar, Users, ArrowLeft, Phone, Mail, Wifi,
   ParkingCircle, Utensils, Waves, CheckCircle, Clock, AlertTriangle,
   CreditCard, Banknote, ChevronRight, Hotel, X, Loader2, ExternalLink,
-  BedDouble, AlertCircle
+  BedDouble, AlertCircle, Download
 } from 'lucide-react';
+import { useInstallPrompt } from './InstallPWA';
 
 const API = '/api/public';
 
@@ -78,6 +79,7 @@ export default function GuestPortal() {
   const [trackError, setTrackError]   = useState('');
   const [trackLoading, setTrackLoading] = useState(false);
   const [showTrack, setShowTrack]     = useState(false);
+  const { canInstall, install }       = useInstallPrompt();
 
   // ---- fetch hotels ----
   const fetchHotels = useCallback(async (q = '') => {
@@ -297,6 +299,13 @@ export default function GuestPortal() {
               className="hidden sm:flex items-center text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">
               <Search className="w-4 h-4 mr-1.5" />Track Booking
             </button>
+            {canInstall && (
+              <button onClick={install}
+                className="flex items-center gap-1.5 text-xs sm:text-sm bg-white/10 hover:bg-white/20 border border-white/20 text-white px-3 py-2 rounded-lg font-semibold transition-colors">
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Install App</span>
+              </button>
+            )}
             <a href="/login"
               className="text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 px-3 py-2 rounded-lg font-semibold flex items-center transition-colors">
               Staff Login<ExternalLink className="w-3 h-3 ml-1.5 opacity-70" />

@@ -20,6 +20,7 @@ import DeveloperDashboard from './components/DeveloperDashboard';
 import GuestPortal from './components/GuestPortal';
 import IDUploadPage from './components/IDUploadPage';
 import AccountVerification from './components/AccountVerification';
+import { InstallButton } from './components/InstallPWA';
 
 const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', '/inventory', '/summary', '/developer'];
 
@@ -287,6 +288,7 @@ const Topbar = ({ user, onMenuClick }) => {
 
       <div className="flex items-center gap-2 sm:gap-3">
         <NotificationBell user={user} />
+        <InstallButton dark={dark} />
 
         {/* Dark / Light mode toggle */}
         <button

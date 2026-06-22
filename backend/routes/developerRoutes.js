@@ -888,11 +888,46 @@ router.get('/storage/files', async (req, res) => {
       ContinuationToken: req.query.token || undefined,
     }));
 
+    const publicBase = (process.env.CF_R2_PUBLIC_URL || '').replace(/\/$/, '');
+    const keys = (page.Contents || []).map(obj => obj.Key);
+
+    // Fetch all bookings that have a real uploaded document URL, then extract
+    // the key via regex — avoids fragile string-based $in matching on publicBase.
+    const Booking  = require('../models/Booking');
+    const Property = require('../models/Property');
+    const bookings = keys.length
+      ? await Booking.find({ documentUrl: { $regex: /^https?:\/\// } })
+        .select('guestName guestPhone guestEmail property documentUrl _id')
+        .populate('property', 'name')
+        .lean()
+      : [];
+
+    // Build a key → booking map using regex extraction (uploadToR2 always uses properties/ prefix)
+    const KEY_RE = /properties\/[^?#\s]+/;
+    const byKey = {};
+    for (const b of bookings) {
+      const m = b.documentUrl && b.documentUrl.match(KEY_RE);
+      if (m) byKey[m[0]] = b;
+    }
+
     res.json({
       configured: true,
-      files: (page.Contents || []).map(obj => ({
-        key: obj.Key, size: obj.Size, lastModified: obj.LastModified,
-      })),
+      files: keys.map(key => {
+        const b = byKey[key];
+        return {
+          key,
+          size: page.Contents.find(o => o.Key === key)?.Size,
+          lastModified: page.Contents.find(o => o.Key === key)?.LastModified,
+          url: publicBase ? `${publicBase}/${key}` : null,
+          guest: b ? {
+            name:     b.guestName,
+            phone:    b.guestPhone,
+            email:    b.guestEmail || '',
+            hotel:    b.property?.name || '—',
+            bookingId: b.bookingId || b._id,
+          } : null,
+        };
+      }),
       nextToken:   page.IsTruncated ? page.NextContinuationToken : null,
       isTruncated: !!page.IsTruncated,
     });
@@ -926,6 +961,74 @@ router.delete('/storage/file', async (req, res) => {
     res.json({ message: `Deleted "${key}" from R2.` });
   } catch (error) {
     res.status(500).json({ message: 'R2 delete failed: ' + error.message });
+  }
+});
+
+// ==========================================
+// 27. GUEST SEARCH
+// ==========================================
+// GET /api/developer/guest-search?q=<phone or name>
+router.get('/guest-search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (q.length < 3) {
+      return res.status(400).json({ message: 'Query must be at least 3 characters.' });
+    }
+
+    const Booking = require('../models/Booking');
+    const regex = new RegExp(q, 'i');
+
+    const bookings = await Booking.find({
+      $or: [
+        { guestPhone: { $regex: regex } },
+        { guestName:  { $regex: regex } },
+      ]
+    })
+      .populate('property', 'name')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // Group by guestPhone
+    const map = new Map();
+    for (const b of bookings) {
+      const phone = b.guestPhone || '__unknown__';
+      if (!map.has(phone)) {
+        map.set(phone, []);
+      }
+      map.get(phone).push(b);
+    }
+
+    const results = [];
+    for (const [phone, group] of map.entries()) {
+      const latest = group[0]; // already sorted by createdAt desc
+      const hotels = [...new Set(group.map(b => b.property?.name).filter(Boolean))];
+      const nonPendingUrls = group
+        .map(b => b.documentUrl)
+        .filter(u => u && u !== 'pending_upload' && /^https?:\/\//.test(u));
+      const uniqueUrls = [...new Set(nonPendingUrls)];
+
+      results.push({
+        guestName:     latest.guestName,
+        guestPhone:    phone === '__unknown__' ? null : phone,
+        guestEmail:    latest.guestEmail || null,
+        totalBookings: group.length,
+        hotels,
+        latestBooking: {
+          _id:      latest._id,
+          checkIn:  latest.checkIn,
+          checkOut: latest.checkOut,
+          status:   latest.status,
+          property: latest.property ? { name: latest.property.name } : null,
+        },
+        documentUrl:  uniqueUrls[0] || null,
+        documentUrls: uniqueUrls,
+      });
+    }
+
+    res.json({ results });
+  } catch (error) {
+    res.status(500).json({ message: 'Guest search failed: ' + error.message });
   }
 });
 
