@@ -1301,7 +1301,7 @@ export default function DeveloperDashboard({ tab: tabProp, setTab: setTabProp } 
                 <button
                   disabled={restartLoading}
                   onClick={async () => {
-                    if (!confirm('Restart the backend server? It will be unavailable for ~3 seconds.')) return;
+                    if (!confirm('Restart the backend server?\n\n⚠️ This only works in production with PM2.\nLocally it will KILL the server and you must restart it manually in the terminal.')) return;
                     setRestartLoading(true);
                     setRestartStatus(null);
                     try {
