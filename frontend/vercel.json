@@ -2,5 +2,14 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "http://43.205.211.112/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" },
+        { "key": "Content-Type", "value": "application/javascript" }
+      ]
+    }
   ]
 }
