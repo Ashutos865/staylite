@@ -11,6 +11,7 @@ const UploadToken = require('../models/UploadToken');
 const Otp = require('../models/Otp');
 const AppConfig = require('../models/AppConfig');
 const { uploadToR2, isConfigured } = require('../utils/r2');
+const { notifyPropertyStaff } = require('../utils/pushNotify');
 
 // Multer memory storage for ID proof uploads
 const idUpload = multer({
@@ -304,6 +305,13 @@ router.post('/bookings', [
     });
 
     await newBooking.save();
+
+    const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
+    notifyPropertyStaff(hotel._id, {
+      title: '🌐 Online Booking',
+      body: `${guestName} — ${numRooms} room${numRooms > 1 ? 's' : ''} · ${nights} night${nights !== 1 ? 's' : ''} · ₹${totalAmount}`,
+      url: '/properties',
+    }).catch(() => {});
 
     res.status(201).json({
       message:      'Booking confirmed! Your room(s) will be assigned by hotel staff.',

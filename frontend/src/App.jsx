@@ -22,6 +22,8 @@ import IDUploadPage from './components/IDUploadPage';
 import AccountVerification from './components/AccountVerification';
 import { InstallButton } from './components/InstallPWA';
 import UpdatePrompt from './components/UpdatePrompt';
+import { useNotifications } from './hooks/useNotifications';
+import { Bell, BellOff } from 'lucide-react';
 
 const STAFF_PATHS = ['/login', '/admin', '/properties', '/inflow', '/calendar', '/inventory', '/summary', '/developer'];
 
@@ -267,6 +269,7 @@ function CheckoutAlertBanner({ alert, onDismiss, onSnooze }) {
 // ── Topbar ────────────────────────────────────────────────────────────────────
 const Topbar = ({ user, onMenuClick }) => {
   const { dark, toggle } = useContext(ThemeContext);
+  const { permission, subscribed, subscribe, unsubscribe } = useNotifications(getToken());
   const lastLoginStr = user.lastLogin
     ? new Date(user.lastLogin).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
     : null;
@@ -298,6 +301,21 @@ const Topbar = ({ user, onMenuClick }) => {
       <div className="flex items-center gap-2 sm:gap-3">
         <NotificationBell user={user} />
         <InstallButton dark={dark} />
+
+        {/* Push notification subscribe toggle */}
+        {permission !== 'denied' && (
+          <button
+            onClick={subscribed ? unsubscribe : subscribe}
+            title={subscribed ? 'Disable push notifications' : 'Enable push notifications'}
+            className={`p-2 rounded-xl transition-all duration-200 ${
+              subscribed
+                ? dark ? 'bg-blue-900/50 text-blue-400 border border-blue-800' : 'bg-blue-50 text-blue-600 border border-blue-200'
+                : dark ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200 border border-gray-200'
+            }`}
+          >
+            {subscribed ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+          </button>
+        )}
 
         {/* Dark / Light mode toggle */}
         <button

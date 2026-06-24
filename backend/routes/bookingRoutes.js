@@ -10,6 +10,7 @@ const User = require('../models/User');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { logEvent } = require('../middleware/requestLogger');
 const { uploadToR2, isConfigured } = require('../utils/r2');
+const { notifyPropertyStaff } = require('../utils/pushNotify');
 
 const idUpload = multer({
   storage: multer.memoryStorage(),
@@ -91,10 +92,16 @@ router.post('/create', verifyToken, [
 
     const prop = await Property.findById(propertyId).select('name');
     const nights = Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24));
-    logEvent('INFO',
+    logEvent(' INFO',
       `New booking: ${guestName} (${guestCount || 1} guest${guestCount > 1 ? 's' : ''}) → ${prop?.name || propertyId}, ${nights} night${nights > 1 ? 's' : ''}, ₹${totalAmount || 0}`,
       { bookingId: newBooking._id, createdBy: req.user.userId }
     );
+
+    notifyPropertyStaff(propertyId, {
+      title: '🛎️ New Booking',
+      body: `${guestName} — ${nights} night${nights !== 1 ? 's' : ''} · ₹${totalAmount || 0}`,
+      url: '/properties',
+    }).catch(() => {});
 
     res.status(201).json({
       message: 'Reservation created successfully! Awaiting room assignment.',
@@ -305,11 +312,21 @@ router.put('/:id/status', verifyToken, async (req, res) => {
         `Check-in: ${booking.guestName} checked into Room ${rooms} at ${hotelName}`,
         { bookingId: booking._id, by: req.user.userId, payment: additionalPayment || 0 }
       );
+      notifyPropertyStaff(booking.property, {
+        title: '✅ Guest Checked In',
+        body: `${booking.guestName} — Room ${rooms} · ${hotelName}`,
+        url: '/properties',
+      }).catch(() => {});
     } else if (status === 'CHECKED_OUT') {
       logEvent('INFO',
         `Check-out: ${booking.guestName} checked out of Room ${rooms} at ${hotelName} (total paid: ₹${booking.advancePaid})`,
         { bookingId: booking._id, by: req.user.userId }
       );
+      notifyPropertyStaff(booking.property, {
+        title: '🏁 Guest Checked Out',
+        body: `${booking.guestName} — ₹${booking.advancePaid} collected · ${hotelName}`,
+        url: '/summary',
+      }).catch(() => {});
     } else if (status === 'CANCELLED') {
       logEvent('INFO',
         `Booking cancelled: ${booking.guestName} at ${hotelName}`,
@@ -320,6 +337,11 @@ router.put('/:id/status', verifyToken, async (req, res) => {
         `Payment of ₹${Number(additionalPayment).toLocaleString('en-IN')} recorded for ${booking.guestName} at ${hotelName} (${paymentMethod || 'UPI'})`,
         { bookingId: booking._id, by: req.user.userId }
       );
+      notifyPropertyStaff(booking.property, {
+        title: '💰 Payment Received',
+        body: `₹${Number(additionalPayment).toLocaleString('en-IN')} from ${booking.guestName} via ${paymentMethod || 'UPI'}`,
+        url: '/summary',
+      }).catch(() => {});
     }
 
     res.status(200).json({

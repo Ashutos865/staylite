@@ -2,11 +2,63 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const Notification = require('../models/Notification');
+const PushSubscription = require('../models/PushSubscription');
 const User = require('../models/User');
 const Property = require('../models/Property');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { sendPush } = require('../utils/pushNotify');
+
+// ==========================================
+// WEB PUSH — VAPID key (public, no auth)
+// ==========================================
+router.get('/vapid-public-key', (req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || '' });
+});
 
 router.use(verifyToken);
+
+// ==========================================
+// WEB PUSH — Subscribe / Unsubscribe / Test
+// ==========================================
+router.post('/push/subscribe', async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+    if (!endpoint || !keys?.p256dh || !keys?.auth)
+      return res.status(400).json({ message: 'Invalid subscription object.' });
+    const user = await User.findById(req.user.userId).select('role properties').lean();
+    await PushSubscription.findOneAndUpdate(
+      { endpoint },
+      { userId: req.user.userId, role: user?.role, propertyIds: user?.properties || [], endpoint, keys },
+      { upsert: true, new: true }
+    );
+    res.json({ message: 'Subscribed to push notifications.' });
+  } catch (err) {
+    console.error('Push subscribe error:', err);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+router.delete('/push/unsubscribe', async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    await PushSubscription.deleteOne({ endpoint, userId: req.user.userId });
+    res.json({ message: 'Unsubscribed.' });
+  } catch {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+router.post('/push/test', async (req, res) => {
+  try {
+    await sendPush(
+      { userId: req.user.userId },
+      { title: 'StayLite Test 🔔', body: 'Push notifications are working!', url: '/' }
+    );
+    res.json({ message: 'Test notification sent.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
