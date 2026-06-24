@@ -128,7 +128,7 @@ export default function Summary({ user }) {
       if (isCheckInToday  && bkg.status !== 'CANCELLED') m.checkIns++;
       if (isCheckOutToday && bkg.status !== 'CANCELLED' && bkg.status !== 'PENDING_ASSIGNMENT') m.checkOuts++;
       if (bkg.source === 'ONLINE' && isCheckInToday) m.onlineBookings++;
-      if (isCheckInToday && bkg.status !== 'CANCELLED') {
+      if (isCheckOutToday && bkg.status !== 'CANCELLED') {
         const amount = bkg.totalAmount || 0;
         m.revenueTotal  += amount;
         if (bkg.paymentMethod === 'UPI')      m.revenueUPI    += amount;
