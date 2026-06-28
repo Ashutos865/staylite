@@ -306,7 +306,6 @@ router.post('/bookings', [
 
     await newBooking.save();
 
-    const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
     notifyPropertyStaff(hotel._id, {
       title: '🌐 Online Booking',
       body: `${guestName} — ${numRooms} room${numRooms > 1 ? 's' : ''} · ${nights} night${nights !== 1 ? 's' : ''} · ₹${totalAmount}`,
