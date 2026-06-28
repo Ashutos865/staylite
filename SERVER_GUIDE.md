@@ -2,7 +2,7 @@
 
 ## Instance Info
 - **Instance:** staylite-backend (t3.micro, ap-south-1a Mumbai)
-- **IP:** 13.201.9.205
+- **IP:** 15.207.233.76
 - **Cost:** ~₹900/month (t3.micro is NOT in free tier — t2.micro not available in this AZ)
 - **RAM:** 1GB | **vCPU:** 2 | **Storage:** 8GB EBS
 
@@ -13,7 +13,7 @@ C:\Users\ashut\Downloads\staylite-key.pem
 
 ## SSH Into Server
 ```powershell
-ssh -i "C:\Users\ashut\Downloads\staylite-key.pem" ubuntu@13.201.9.205
+ssh -i "C:\Users\ashut\Downloads\staylite-key.pem" ubuntu@15.207.233.76
 ```
 
 > If SSH times out: AWS Console → EC2 → Security Group → Edit inbound rules → Add SSH rule → Source: My IP
